@@ -5,32 +5,44 @@ import { api } from '../services/api.js';
 export default function PaymentCallback() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const token = searchParams.get('token');  // iyzico callback'te gelebilir
+  const tokenParam = searchParams.get('token');
 
   useEffect(() => {
-    const verifyPayment = async () => {
-      if (!token) {
-        alert('Geçersiz dönüş');
-        navigate('/dashboard/your-uuid');
+    const verify = async () => {
+      if (!tokenParam) {
+        alert('Geçersiz ödeme dönüşü');
+        navigate('/login');
         return;
       }
 
       try {
-        const result = await api.post('/api/subscriptions/retrieve', { token });
+        const result = await api.post('/api/subscriptions/retrieve', { token: tokenParam });
+
         if (result.success) {
-          alert('Ödeme başarılı! Aboneliğiniz aktif.');
+          alert('Ödeme başarılı! Abonelik aktif edildi.');
+          // uuid'yi localStorage'dan al (login'de kaydetmiş olman lazım)
+          const uuid = localStorage.getItem('uuid') || 'your-uuid-here';
+          navigate(`/dashboard/${uuid}`);
         } else {
-          alert('Ödeme başarısız veya beklemede.');
+          alert('Ödeme doğrulanamadı: ' + (result.message || 'Bilinmeyen hata'));
+          navigate('/login');
         }
       } catch (err) {
-        alert('Doğrulama hatası');
-      } finally {
-        navigate('/dashboard/your-uuid');  // veya dinamik uuid
+        console.error('Doğrulama hatası:', err);
+        alert('Ödeme doğrulama hatası: ' + err.message);
+        navigate('/login');
       }
     };
 
-    verifyPayment();
-  }, [token, navigate]);
+    verify();
+  }, [tokenParam, navigate]);
 
-  return <div className="p-10 text-center">Ödeme işlemi kontrol ediliyor...</div>;
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-100">
+      <div className="bg-white p-12 rounded-2xl shadow-2xl text-center max-w-md w-full">
+        <h1 className="text-3xl font-bold text-blue-600 mb-6">Ödeme Doğrulanıyor...</h1>
+        <p className="text-lg text-gray-700">Lütfen bekleyin, işlem tamamlanıyor.</p>
+      </div>
+    </div>
+  );
 }

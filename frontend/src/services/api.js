@@ -1,18 +1,34 @@
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
-async function req(method, path, body = null, token = null) {
-  const headers = { 'Content-Type': 'application/json' };
-  if (token) headers.Authorization = `Bearer ${token}`;
+async function req(method, path, body = null) {
+  const token = localStorage.getItem('token');
 
-  const res = await fetch(BASE + path, {
+  const headers = {
+    'Content-Type': 'application/json',
+  };
+
+  // Token varsa Authorization header'ı ekle
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const config = {
     method,
     headers,
-    body: body ? JSON.stringify(body) : null
-  });
+  };
+
+  if (body) {
+    config.body = JSON.stringify(body);
+  }
+
+  const res = await fetch(`${BASE}${path}`, config);
 
   if (!res.ok) {
-    let msg = 'Hata';
-    try { msg = (await res.json()).message || msg; } catch {}
+    let msg = `HTTP ${res.status}`;
+    try {
+      const errData = await res.json();
+      msg = errData.message || msg;
+    } catch {}
     throw new Error(msg);
   }
 
@@ -20,6 +36,6 @@ async function req(method, path, body = null, token = null) {
 }
 
 export const api = {
-  post: (path, body, token) => req('POST', path, body, token),
-  get:  (path, token)       => req('GET',  path, null, token),
+  get: (path) => req('GET', path),
+  post: (path, body = null) => req('POST', path, body),
 };
