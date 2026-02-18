@@ -7,7 +7,7 @@ import authRouter from './routes/auth.js';
 import subscriptionRouter from './routes/subscription.js'; // ekle
 import animalRouter from './routes/animal.js';           // ekle
 import areaRouter from './routes/area.js';               // ekle
-
+ import './cron.js';
 const app = express();
 
 app.use(cors({

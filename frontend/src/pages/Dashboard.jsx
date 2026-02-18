@@ -18,24 +18,28 @@ export default function Dashboard() {
   const [subscriptionInfo, setSubscriptionInfo] = useState(null);
   const [isScanning, setIsScanning] = useState(false);
 
+  // Hayvan güncelleme modalı
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [updateForm, setUpdateForm] = useState({
+    buyukbas_count: 0,
+    kucukbas_count: 0
+  });
+  const [updateLoading, setUpdateLoading] = useState(false);
+
   const mapContainer = useRef(null);
   const map = useRef(null);
   const scannerRef = useRef(null);
 
-  // Token yoksa login'e yönlendir
   useEffect(() => {
     if (!token) navigate('/login');
   }, [token, navigate]);
 
-  // Abonelik + veri çekme
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        // Abonelik bilgisi
         const sub = await api.get('/api/subscriptions/status');
         setSubscriptionInfo(sub);
 
-        // Hayvanlar ve alanlar
         const [animalData, areaData] = await Promise.all([
           api.get('/api/animals'),
           api.get('/api/areas')
@@ -54,96 +58,24 @@ export default function Dashboard() {
     fetchAll();
   }, [token, navigate]);
 
-  // Harita başlatma (MapTiler + MapLibre)
   useEffect(() => {
     if (!mapContainer.current || map.current) return;
 
     map.current = new maplibregl.Map({
       container: mapContainer.current,
       style: `https://api.maptiler.com/maps/streets/style.json?key=${import.meta.env.VITE_MAPTILER_API_KEY}`,
-      center: [32.85, 39.93], // [lng, lat]
+      center: [32.85, 39.93],
       zoom: 13,
       attributionControl: false
     });
 
     map.current.addControl(new maplibregl.NavigationControl(), 'top-right');
 
-    // Harita yüklendiğinde verileri ekle
-    map.current.on('load', () => {
-      // Hayvan marker'ları
-      map.current.addSource('animals', {
-        type: 'geojson',
-        data: {
-          type: 'FeatureCollection',
-          features: animals.map(a => ({
-            type: 'Feature',
-            geometry: {
-              type: 'Point',
-              coordinates: [a.last_lng || 32.85, a.last_lat || 39.93]
-            },
-            properties: { code: a.code }
-          }))
-        }
-      });
-
-      map.current.addLayer({
-        id: 'animals-markers',
-        type: 'circle',
-        source: 'animals',
-        paint: {
-          'circle-radius': 8,
-          'circle-color': '#FF0000',
-          'circle-stroke-color': '#FFFFFF',
-          'circle-stroke-width': 2
-        }
-      });
-
-      // Alanlar (polygon)
-      areas.forEach(area => {
-        if (area.polygon) {
-          map.current.addSource(`area-${area.id}`, {
-            type: 'geojson',
-            data: {
-              type: 'Feature',
-              geometry: {
-                type: 'Polygon',
-                coordinates: [area.polygon.map(p => [p.lng, p.lat])]
-              }
-            }
-          });
-
-          map.current.addLayer({
-            id: `area-fill-${area.id}`,
-            type: 'fill',
-            source: `area-${area.id}`,
-            paint: {
-              'fill-color': '#22c55e',
-              'fill-opacity': 0.35
-            }
-          });
-
-          map.current.addLayer({
-            id: `area-outline-${area.id}`,
-            type: 'line',
-            source: `area-${area.id}`,
-            paint: {
-              'line-color': '#16a34a',
-              'line-width': 3
-            }
-          });
-        }
-      });
-    });
-
     return () => {
-      if (map.current) {
-        map.current.remove();
-        map.current = null;
-      }
+      if (map.current) map.current.remove();
     };
-  }, [animals, areas]);
+  }, []);
 
-  // QR Tarama
   useEffect(() => {
     if (!isScanning) return;
 
@@ -172,30 +104,75 @@ export default function Dashboard() {
     return () => qr.stop().catch(() => {});
   }, [isScanning]);
 
-  // Çıkış yap
   const handleLogout = () => {
     localStorage.removeItem('token');
     navigate('/login');
   };
 
-  // Ödeme başlat (her zaman aktif)
+  // ESKİ: Aylık otomatik abonelik başlat
   const startPayment = async () => {
-  try {
-    const data = await api.post('/api/subscriptions/initialize', {});
-    if (data.success && data.paymentPageUrl) {
-      // Yıllık tutarı alert ile göster (isteğe bağlı)
-      alert(`Yıllık toplam ${data.amount} TL ödeme sayfasına yönlendiriliyorsunuz.`);
-      window.location.href = data.paymentPageUrl;
-    } else {
-      alert('Ödeme başlatılamadı');
+    try {
+      const data = await api.post('/api/subscriptions/initialize', {});
+      if (data.success && data.paymentPageUrl) {
+        window.location.href = data.paymentPageUrl;
+      } else {
+        alert('Ödeme başlatılamadı');
+      }
+    } catch (err) {
+      alert('Ödeme hatası: ' + err.message);
     }
-  } catch (err) {
-    alert('Ödeme hatası: ' + err.message);
-  }
-};
+  };
 
+  // Paketi Yenile (1 yıl uzatma)
+  const startRenewal = async () => {
+    try {
+      const data = await api.post('/api/subscriptions/renew', {});
+      if (data.success && data.paymentPageUrl) {
+        window.location.href = data.paymentPageUrl;
+      } else {
+        alert('Yenileme başlatılamadı');
+      }
+    } catch (err) {
+      alert('Yenileme hatası: ' + err.message);
+    }
+  };
 
-  // Kalan gün hesaplama
+  // Hayvan Sayısı Güncelleme Modal
+  const openUpdateModal = () => {
+    setUpdateForm({
+      buyukbas_count: 0,
+      kucukbas_count: 0
+    });
+    setShowUpdateModal(true);
+  };
+
+  const handleUpdateChange = (e) => {
+    const { name, value } = e.target;
+    setUpdateForm({ ...updateForm, [name]: Number(value) });
+  };
+
+  const handleUpdateSubmit = async (e) => {
+    e.preventDefault();
+    setUpdateLoading(true);
+
+    try {
+      const data = await api.post('/api/subscriptions/update-animals', updateForm);
+      if (data.success) {
+        alert('Hayvan sayısı güncellendi! Yeni aylık ücret: ' + data.new_monthly_price + ' TL');
+        // Subscription bilgisini yeniden çek
+        const sub = await api.get('/api/subscriptions/status');
+        setSubscriptionInfo(sub);
+        setShowUpdateModal(false);
+      } else {
+        alert('Güncelleme başarısız');
+      }
+    } catch (err) {
+      alert('Güncelleme hatası: ' + err.message);
+    } finally {
+      setUpdateLoading(false);
+    }
+  };
+
   const getRemainingDays = () => {
     if (!subscriptionInfo) return 0;
     const end = new Date(subscriptionInfo.subscription_end || subscriptionInfo.trial_end);
@@ -215,16 +192,31 @@ export default function Dashboard() {
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100">
       {/* HEADER */}
       <header className="bg-white shadow-sm border-b sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row justify-between items-center gap-4 ">
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">Digital Çoban</h1>
           
-          <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+          <div className="flex flex-wrap items-center gap-3 sm:gap-4 ">
             <button
               onClick={startPayment}
+              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium text-sm sm:text-base transition"
+            >
+              Ödeme Yap
+            </button>
+
+            <button
+              onClick={startRenewal}
               className="px-5 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-xl font-medium text-sm sm:text-base transition"
             >
-              Ödeme Yap / Yenile
+              Paketi Yenile
             </button>
+
+            <button
+              onClick={openUpdateModal}
+              className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-medium text-sm sm:text-base transition"
+            >
+              Hayvan Sayısını Güncelle
+            </button>
+
             <button
               onClick={handleLogout}
               className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-medium text-sm sm:text-base transition"
@@ -260,7 +252,6 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
           {/* SOL KISIM */}
           <div className="space-y-6 lg:space-y-8">
-
             {/* QR KAMERA */}
             <div className="bg-white rounded-2xl shadow-md p-6 border border-gray-200">
               <h3 className="text-xl sm:text-2xl font-semibold mb-4">Hayvan Ekle (QR Okut)</h3>
@@ -319,6 +310,63 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Hayvan Sayısı Güncelleme Modal */}
+      {showUpdateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-8 rounded-xl shadow-2xl max-w-md w-full">
+            <h2 className="text-2xl font-bold mb-6 text-center">Hayvan Sayısını Güncelle</h2>
+
+            <form onSubmit={handleUpdateSubmit}>
+              <div className="mb-6">
+                <label className="block text-gray-700 mb-2">Büyükbaş Sayısı</label>
+                <input
+                  name="buyukbas_count"
+                  type="number"
+                  min="0"
+                  value={updateForm.buyukbas_count}
+                  onChange={handleUpdateChange}
+                  className="w-full p-3 border rounded"
+                />
+              </div>
+
+              <div className="mb-6">
+                <label className="block text-gray-700 mb-2">Küçükbaş Sayısı</label>
+                <input
+                  name="kucukbas_count"
+                  type="number"
+                  min="0"
+                  value={updateForm.kucukbas_count}
+                  onChange={handleUpdateChange}
+                  className="w-full p-3 border rounded"
+                />
+              </div>
+
+              <div className="mt-4 p-4 bg-gray-50 rounded border">
+                <p className="text-lg">Yeni Toplam Aylık Ücret: <strong>{updateForm.buyukbas_count * 1200 + updateForm.kucukbas_count * 700} TL</strong></p>
+                <p className="text-sm text-gray-600 mt-2">Bu değişiklik o ayki ve sonraki ayların ödemesini etkiler.</p>
+              </div>
+
+              <div className="flex justify-between mt-6">
+                <button
+                  type="button"
+                  onClick={() => setShowUpdateModal(false)}
+                  className="px-6 py-3 bg-gray-500 text-white rounded-xl hover:bg-gray-600"
+                >
+                  İptal
+                </button>
+                <button
+                  type="submit"
+                  disabled={updateLoading}
+                  className="px-6 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 disabled:opacity-50"
+                >
+                  {updateLoading ? 'Güncelleniyor...' : 'Güncelle'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -4,9 +4,14 @@ import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 
 export const register = async (req, res) => {
-  const { username, email, password, animal_type, animal_count } = req.body;
-  if (!username || !email || !password || !animal_type || !animal_count) {
+  const { username, email, password, phone, address, buyukbas_count = 0, kucukbas_count = 0 } = req.body;
+
+  if (!username || !email || !password || !phone || !address) {
     return res.status(400).json({ message: 'Eksik alan' });
+  }
+
+  if (buyukbas_count === 0 && kucukbas_count === 0) {
+    return res.status(400).json({ message: 'En az bir hayvan türü ve sayısı giriniz' });
   }
 
   try {
@@ -14,28 +19,44 @@ export const register = async (req, res) => {
     const hash = await bcrypt.hash(password, 12);
     const uuid = uuidv4();
 
+    // Kullanıcıyı kaydet
     await pool.request()
       .input('username', username)
       .input('email', email)
       .input('password_hash', hash)
+      .input('phone', phone)
+      .input('address', address)
       .input('uuid', uuid)
-      .query(`INSERT INTO Users (username, email, password_hash, uuid) VALUES (@username,@email,@password_hash,@uuid)`);
+      .query(`
+        INSERT INTO Users (username, email, password_hash, phone, address, uuid)
+        VALUES (@username, @email, @password_hash, @phone, @address, @uuid)
+      `);
 
-    const user = (await pool.request().input('uuid', uuid).query(`SELECT id FROM Users WHERE uuid=@uuid`)).recordset[0];
+    const user = (await pool.request().input('uuid', uuid).query(`
+      SELECT id FROM Users WHERE uuid = @uuid
+    `)).recordset[0];
 
-    const pricePer = animal_type === 'buyukbas' ? 1200 : 700;
-    const monthly = Number(animal_count) * pricePer;
+    // Aylık ücret hesapla
+    const buyukbasPrice = 1200;
+    const kucukbasPrice = 700;
+    const buyukbasMonthly = buyukbas_count * buyukbasPrice;
+    const kucukbasMonthly = kucukbas_count * kucukbasPrice;
+    const totalMonthly = buyukbasMonthly + kucukbasMonthly;
+
     const trialEnd = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
 
     await pool.request()
       .input('user_id', user.id)
-      .input('animal_type', animal_type)
-      .input('animal_count', Number(animal_count))
-      .input('monthly_price', monthly)
+      .input('buyukbas_count', buyukbas_count)
+      .input('kucukbas_count', kucukbas_count)
+      .input('monthly_price', totalMonthly)
       .input('trial_end', trialEnd)
       .query(`
-        INSERT INTO Subscriptions (user_id, animal_type, animal_count, monthly_price, trial_end)
-        VALUES (@user_id, @animal_type, @animal_count, @monthly_price, @trial_end)
+        INSERT INTO Subscriptions (
+          user_id, buyukbas_count, kucukbas_count, monthly_price, trial_end
+        ) VALUES (
+          @user_id, @buyukbas_count, @kucukbas_count, @monthly_price, @trial_end
+        )
       `);
 
     res.status(201).json({ uuid });
@@ -64,7 +85,6 @@ export const login = async (req, res) => {
 
     const token = jwt.sign({ id: user.id, uuid: user.uuid }, process.env.JWT_SECRET, { expiresIn: '14d' });
 
-    // Abonelik durumunu çek
     const subResult = await pool.request()
       .input('user_id', user.id)
       .query(`
