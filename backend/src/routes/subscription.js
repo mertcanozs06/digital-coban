@@ -35,4 +35,6 @@ router.post('/update-animals', authMiddleware, updateAnimalCount);
 router.post('/renew', authMiddleware, startRenewal);
 router.post('/renew/verify', verifyRenewal);
 
+
+
 export default router;

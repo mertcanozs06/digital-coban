@@ -4,6 +4,7 @@ import Register from './pages/Register.jsx';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import PaymentCallback from './pages/PaymentCallback.jsx';
+import RenewalCallback from './pages/RenewalCallback.jsx';
 
 export default function App() {
   const token = localStorage.getItem('token');
@@ -15,6 +16,7 @@ export default function App() {
         <Route path="/register" element={<Register />} />
         <Route path="/login" element={<Login />} />
         <Route path="/payment-callback" element={<PaymentCallback />} />
+         <Route path="/renewal-callback" element={<RenewalCallback />} />
 
         {/* KORUMALI DASHBOARD - Token yoksa login'e yönlendir */}
         <Route

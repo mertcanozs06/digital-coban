@@ -1,11 +1,25 @@
 import { poolPromise } from '../config/db.js';
 import iyzipay from '../config/iyzico.js';
 import { v4 as uuidv4 } from 'uuid';
+import 'dotenv/config';
+
+function formatDate(date = new Date()) {
+  const d = new Date(date);
+  const pad = (n) => n.toString().padStart(2, '0');
+
+  return (
+    d.getFullYear() + '-' +
+    pad(d.getMonth() + 1) + '-' +
+    pad(d.getDate()) + ' ' +
+    pad(d.getHours()) + ':' +
+    pad(d.getMinutes()) + ':' +
+    pad(d.getSeconds())
+  );
+}
 
 /* ===============================
-   PAKET YENİLEME ÖDEMESİ BAŞLAT
-   - Tek seferlik yenileme ödemesi
-   - Ödeme başarılı olunca 1 yıl uzatma
+   YILLIK TEK SEFERLİK YENİLEME BAŞLAT
+   - Mevcut subscription_end +1 yıl
 ================================ */
 export const startRenewal = async (req, res) => {
   const userId = req.user.id;
@@ -37,49 +51,70 @@ export const startRenewal = async (req, res) => {
       return res.status(400).json({ message: 'Geçersiz fiyat' });
     }
 
-    const priceString = monthlyPrice.toFixed(2);
+    const yearlyPrice = (monthlyPrice * 12).toFixed(2);
 
     const request = {
       locale: 'tr',
       conversationId: uuidv4(),
-      price: priceString,
-      paidPrice: priceString,
+      price: yearlyPrice,
+      paidPrice: yearlyPrice,
       currency: 'TRY',
       installment: '1',
       basketId: `RENEW_${userId}_${Date.now()}`,
       paymentChannel: 'WEB',
       paymentGroup: 'SUBSCRIPTION',
-      callbackUrl: `${process.env.FRONTEND_URL}/renewal-callback`,
+     callbackUrl: "http://localhost:5000/api/subscriptions/renew/verify", 
 
       buyer: {
         id: userId.toString(),
         name: 'Ad Soyad',
         surname: 'Soyad',
         identityNumber: '12345678901',
-        email: sub.email || 'user@email.com',
-        gsmNumber: sub.phone || '+905xxxxxxxxx',
-        registrationDate: new Date().toISOString(),
-        lastLoginDate: new Date().toISOString(),
-        registrationAddress: sub.address || 'Adres',
+        email: sub.email || 'zorunlu@email.com',
+        gsmNumber: sub.phone || '+905551234567',
+        registrationDate: formatDate(new Date()),
+        lastLoginDate: formatDate(new Date()),
+        registrationAddress: sub.address || 'Test Adresi, İstanbul, Türkiye',
         city: 'İstanbul',
         country: 'Turkey',
         zipCode: '34000',
         ip: req.ip
       },
 
+      billingAddress: {
+        contactName: 'Fatura Adı Soyadı',
+        city: 'İstanbul',
+        country: 'Turkey',
+        address: sub.address || 'Test Fatura Adresi, İstanbul, Türkiye',
+        zipCode: '34000'
+      },
+
+      shippingAddress: {
+        contactName: 'Teslimat Adı Soyadı',
+        city: 'İstanbul',
+        country: 'Turkey',
+        address: sub.address || 'Test Teslimat Adresi, İstanbul, Türkiye',
+        zipCode: '34000'
+      },
+
       basketItems: [{
         id: 'RENEWAL-001',
-        name: 'Digital Çoban Yenileme (1 Yıl)',
+        name: 'Digital Çoban Yıllık Yenileme',
         category1: 'Servis',
         itemType: 'VIRTUAL',
-        price: priceString
+        price: yearlyPrice
       }]
     };
 
-    iyzipay.checkoutForm.initialize(request, async (err, result) => {
-      if (err || result.status !== 'success') {
-        console.error('Yenileme başlatılamadı:', err || result);
-        return res.status(500).json({ error: err?.message || result?.errorMessage });
+    iyzipay.checkoutFormInitialize.create(request, async (err, result) => {
+      if (err) {
+        console.error('iyzico ERR:', err);
+        return res.status(500).json({ message: 'iyzico çağrı hatası', error: err.message });
+      }
+
+      if (result.status !== 'success') {
+        console.error('Yenileme başlatılamadı:', result);
+        return res.status(500).json({ message: 'Yenileme başlatılamadı', iyzicoError: result.errorMessage });
       }
 
       res.json({
@@ -89,15 +124,14 @@ export const startRenewal = async (req, res) => {
       });
     });
   } catch (err) {
-    console.error("RENEW INIT ERROR:", err);
-    res.status(500).json({ message: 'Sunucu hatası' });
+    console.error("RENEW INIT ERROR:", err.message, err.stack);
+    res.status(500).json({ message: 'Sunucu hatası', error: err.message });
   }
 };
 
 /* ===============================
    YENİLEME ÖDEME DOĞRULAMA
-   - Mevcut subscription_end'in 1 saniye sonrası yeni start
-   - Yeni start + 1 yıl = yeni end
+   - Mevcut subscription_end +1 yıl
 ================================ */
 export const verifyRenewal = async (req, res) => {
   const { token } = req.body;
@@ -107,10 +141,7 @@ export const verifyRenewal = async (req, res) => {
   }
 
   iyzipay.checkoutForm.retrieve(
-    {
-      locale: 'tr',
-      token
-    },
+    { locale: 'tr', token },
     async (err, result) => {
       if (err || result.status !== 'success') {
         console.error('Yenileme retrieve hatası:', err || result);
@@ -121,7 +152,6 @@ export const verifyRenewal = async (req, res) => {
         try {
           const pool = await poolPromise;
 
-          // Mevcut abonelik bilgisini çek
           const currentSub = (await pool.request()
             .input('token', token)
             .query(`
@@ -134,12 +164,10 @@ export const verifyRenewal = async (req, res) => {
             return res.status(404).json({ message: 'Abonelik bulunamadı' });
           }
 
-          // Senin istediğin mantık: subscription_end'in 1 saniye sonrası yeni start
           const oldEnd = new Date(currentSub.subscription_end);
           const newStart = new Date(oldEnd);
-          newStart.setSeconds(newStart.getSeconds() + 1); // 1 saniye sonrası
+          newStart.setSeconds(newStart.getSeconds() + 1);
 
-          // Yeni start + 1 yıl = yeni end
           const newEndDate = new Date(newStart);
           newEndDate.setFullYear(newEndDate.getFullYear() + 1);
 

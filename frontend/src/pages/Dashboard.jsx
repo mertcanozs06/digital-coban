@@ -58,23 +58,115 @@ export default function Dashboard() {
     fetchAll();
   }, [token, navigate]);
 
+  // HARİTA BAŞLATMA – GÖRÜNÜRLÜK GARANTİLİ
   useEffect(() => {
     if (!mapContainer.current || map.current) return;
 
-    map.current = new maplibregl.Map({
-      container: mapContainer.current,
-      style: `https://api.maptiler.com/maps/streets/style.json?key=${import.meta.env.VITE_MAPTILER_API_KEY}`,
-      center: [32.85, 39.93],
-      zoom: 13,
-      attributionControl: false
-    });
+    const apiKey = import.meta.env.VITE_MAPTILER_API_KEY;
+    console.log('MapTiler API Key:', apiKey ? 'var' : 'YOK!');
 
-    map.current.addControl(new maplibregl.NavigationControl(), 'top-right');
+    if (!apiKey) {
+      console.error('HATA: VITE_MAPTILER_API_KEY .env dosyasında tanımlı değil!');
+      if (mapContainer.current) {
+        mapContainer.current.innerHTML = '<div class="h-full flex items-center justify-center text-red-600">MapTiler API Key eksik! .env dosyasına VITE_MAPTILER_API_KEY ekleyin.</div>';
+      }
+      return;
+    }
+
+    try {
+      map.current = new maplibregl.Map({
+        container: mapContainer.current,
+        style: `https://api.maptiler.com/maps/streets/style.json?key=${apiKey}`,
+        center: [32.85, 39.93],
+        zoom: 13,
+        attributionControl: false
+      });
+
+      map.current.addControl(new maplibregl.NavigationControl(), 'top-right');
+
+      // Harita yüklendiğinde çalışır
+      map.current.on('load', () => {
+        console.log('HARİTA TAMAMEN YÜKLENDİ!');
+
+        // Test için her zaman görünen yeşil marker (merkez)
+        new maplibregl.Marker({ color: '#00FF00' })
+          .setLngLat([32.85, 39.93])
+          .setPopup(new maplibregl.Popup().setText('Harita Çalışıyor – Test Noktası'))
+          .addTo(map.current);
+
+        // Hayvan marker'ları
+        animals.forEach((a, index) => {
+          if (!a.last_lat || !a.last_lng) return;
+
+          const offset = index * 0.0005; // üst üste binmemek için
+          const lng = Number(a.last_lng) + offset;
+          const lat = Number(a.last_lat) + offset;
+
+          new maplibregl.Marker({ color: '#FF0000' })
+            .setLngLat([lng, lat])
+            .setPopup(new maplibregl.Popup().setText(a.code || 'Hayvan'))
+            .addTo(map.current);
+        });
+
+        // Alan polygon'ları
+        areas.forEach(area => {
+          if (!area.polygon || area.polygon.length < 3) return;
+
+          try {
+            map.current.addSource(`area-${area.id}`, {
+              type: 'geojson',
+              data: {
+                type: 'Feature',
+                geometry: {
+                  type: 'Polygon',
+                  coordinates: [area.polygon]
+                }
+              }
+            });
+
+            map.current.addLayer({
+              id: `area-fill-${area.id}`,
+              type: 'fill',
+              source: `area-${area.id}`,
+              paint: {
+                'fill-color': '#22c55e',
+                'fill-opacity': 0.35
+              }
+            });
+
+            map.current.addLayer({
+              id: `area-outline-${area.id}`,
+              type: 'line',
+              source: `area-${area.id}`,
+              paint: {
+                'line-color': '#16a34a',
+                'line-width': 3
+              }
+            });
+          } catch (polyErr) {
+            console.error('Polygon ekleme hatası:', polyErr);
+          }
+        });
+      });
+
+      // Hata yakalama
+      map.current.on('error', (e) => {
+        console.error('MapLibre hata:', e);
+      });
+    } catch (mapErr) {
+      console.error('Harita başlatılamadı:', mapErr);
+      if (mapContainer.current) {
+        mapContainer.current.innerHTML = '<div class="h-full flex items-center justify-center text-red-600">Harita başlatılamadı: ' + mapErr.message + '</div>';
+      }
+    }
 
     return () => {
-      if (map.current) map.current.remove();
+      if (map.current) {
+        map.current.remove();
+        map.current = null;
+      }
     };
-  }, []);
+  }, [animals, areas]); // animals ve areas değiştiğinde güncelle
 
   useEffect(() => {
     if (!isScanning) return;
@@ -109,7 +201,6 @@ export default function Dashboard() {
     navigate('/login');
   };
 
-  // ESKİ: Aylık otomatik abonelik başlat
   const startPayment = async () => {
     try {
       const data = await api.post('/api/subscriptions/initialize', {});
@@ -123,7 +214,6 @@ export default function Dashboard() {
     }
   };
 
-  // Paketi Yenile (1 yıl uzatma)
   const startRenewal = async () => {
     try {
       const data = await api.post('/api/subscriptions/renew', {});
@@ -137,7 +227,6 @@ export default function Dashboard() {
     }
   };
 
-  // Hayvan Sayısı Güncelleme Modal
   const openUpdateModal = () => {
     setUpdateForm({
       buyukbas_count: 0,
@@ -159,7 +248,6 @@ export default function Dashboard() {
       const data = await api.post('/api/subscriptions/update-animals', updateForm);
       if (data.success) {
         alert('Hayvan sayısı güncellendi! Yeni aylık ücret: ' + data.new_monthly_price + ' TL');
-        // Subscription bilgisini yeniden çek
         const sub = await api.get('/api/subscriptions/status');
         setSubscriptionInfo(sub);
         setShowUpdateModal(false);
@@ -189,13 +277,13 @@ export default function Dashboard() {
   if (loading) return <div className="min-h-screen flex items-center justify-center text-2xl">Yükleniyor...</div>;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100">
+    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 ">
       {/* HEADER */}
       <header className="bg-white shadow-sm border-b sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row justify-between items-center gap-4 ">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">Digital Çoban</h1>
           
-          <div className="flex flex-wrap items-center gap-3 sm:gap-4 ">
+          <div className="flex flex-wrap items-center gap-3 sm:gap-4">
             <button
               onClick={startPayment}
               className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium text-sm sm:text-base transition"
@@ -228,7 +316,7 @@ export default function Dashboard() {
       </header>
 
       {/* ABONELİK BİLGİ KUTUSU */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6" >
         <div className="bg-white rounded-2xl shadow-md p-5 sm:p-6 mb-8 border border-gray-200">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 text-center sm:text-left">
             <div>
@@ -302,16 +390,25 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* HARİTA */}
+          {/* HARİTA – DÜZELTİLMİŞ HALİ */}
           <div className="bg-white rounded-2xl shadow-md p-6 border border-gray-200">
             <h3 className="text-xl sm:text-2xl font-semibold mb-4 text-right lg:text-left">Sürü Haritası</h3>
             
-            <div ref={mapContainer} className="w-full rounded-xl overflow-hidden border border-gray-300" style={{ height: '420px' }} />
+            <div 
+              ref={mapContainer} 
+              className="w-full rounded-xl overflow-hidden border border-gray-300 bg-gray-200 relative"
+              style={{ height: '600px' }}
+            >
+              {/* Harita yüklenirken gösterilecek placeholder */}
+              <div className="absolute inset-0 flex items-center justify-center text-gray-600 bg-gray-100 bg-opacity-80 z-10">
+                Harita yükleniyor... (API Key kontrol ediliyor)
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Hayvan Sayısı Güncelleme Modal */}
+      {/* Hayvan Sayısı Güncelleme Modal – aynı */}
       {showUpdateModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white p-8 rounded-xl shadow-2xl max-w-md w-full">

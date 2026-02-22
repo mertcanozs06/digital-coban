@@ -20,9 +20,9 @@ function formatDate(date = new Date()) {
 }
 
 /* ===============================
-   AYLIK OTOMATİK ABONELİK BAŞLAT
-   - Tek seferlik ödeme yok
-   - Direkt aylık otomatik abonelik planı + abonelik oluşturur
+   YILLIK TEK SEFERLİK İLK ÖDEME BAŞLAT
+   - Aylık fiyat × 12 = yıllık tutar
+   - Tek seferlik ödeme (checkoutFormInitialize.create)
    - Ödeme olmadan status 'pending' kalır
 ================================ */
 export const initializeCheckout = async (req, res) => {
@@ -55,78 +55,244 @@ export const initializeCheckout = async (req, res) => {
       return res.status(400).json({ message: 'Geçersiz fiyat' });
     }
 
-    const priceString = monthlyPrice.toFixed(2);
+    const yearlyPrice = (monthlyPrice * 12).toFixed(2);
 
-    // 1. Aylık otomatik abonelik planı oluştur
-    const planRequest = {
+    const request = {
       locale: 'tr',
       conversationId: uuidv4(),
-      name: `Aylık Abonelik - Kullanıcı ${userId}`,
-      price: priceString,
-      currencyCode: 'TRY',
-      paymentInterval: 'MONTHLY',
-      paymentIntervalCount: 1,
-      trialPeriodDays: 0,
-      subscriptionInitialStatus: 'ACTIVE',
-      planReferenceCode: `PLAN_${userId}_${Date.now()}`
+      price: yearlyPrice,
+      paidPrice: yearlyPrice,
+      currency: 'TRY',
+      installment: '1',
+      basketId: `YEARLY_${userId}_${Date.now()}`,
+      paymentChannel: 'WEB',
+      paymentGroup: 'PRODUCT',
+     callbackUrl: `http://127.0.0.1:5000/api/subscriptions/callback`,
+
+      buyer: {
+        id: userId.toString(),
+        name: 'Kullanıcı',
+        surname: 'Test',
+        identityNumber: '11111111111',
+        email: sub.email || 'zorunlu@email.com',
+        gsmNumber: sub.phone || '+905551234567',
+        registrationDate: formatDate(new Date()),
+        lastLoginDate: formatDate(new Date()),
+        registrationAddress: sub.address || 'Test Adres, İstanbul, Türkiye',
+        city: 'İstanbul',
+        country: 'Turkey',
+        zipCode: '34000',
+        ip: req.ip
+      },
+
+      billingAddress: {
+        contactName: 'Fatura Adı Soyadı',
+        city: 'İstanbul',
+        country: 'Turkey',
+        address: sub.address || 'Test Fatura Adresi, İstanbul, Türkiye',
+        zipCode: '34000'
+      },
+
+      shippingAddress: {
+        contactName: 'Teslimat Adı Soyadı',
+        city: 'İstanbul',
+        country: 'Turkey',
+        address: sub.address || 'Test Teslimat Adresi, İstanbul, Türkiye',
+        zipCode: '34000'
+      },
+
+      basketItems: [{
+        id: 'YEARLY-001',
+        name: 'Digital Çoban Yıllık Abonelik',
+        category1: 'Servis',
+        itemType: 'VIRTUAL',
+        price: yearlyPrice
+      }]
     };
 
-    iyzipay.subscriptionPlan.create(planRequest, async (planErr, planResult) => {
-      if (planErr || planResult.status !== 'success') {
-        console.error('Plan oluşturulamadı:', planErr || planResult);
-        return res.status(500).json({ message: 'Plan oluşturulamadı' });
+    iyzipay.checkoutFormInitialize.create(request, async (err, result) => {
+      if (err) {
+        console.error('iyzico ERR:', err);
+        return res.status(500).json({ message: 'iyzico çağrı hatası', error: err.message });
       }
 
-      // 2. Abonelik oluştur (kullanıcıyı iyzico sayfasına yönlendirir)
-      const subscriptionRequest = {
-        locale: 'tr',
-        conversationId: uuidv4(),
-        pricingPlanReferenceCode: planResult.referenceCode,
-        subscriptionInitialStatus: 'ACTIVE',
-        customer: {
-          name: 'User',
-          surname: 'Test',
-          email: sub.email || 'test@example.com',
-          identityNumber: '11111111111',
-          gsmNumber: sub.phone || '+905555555555'
-        },
-        callbackUrl: `${process.env.FRONTEND_URL}/payment-callback`
-      };
+      if (result.status !== 'success') {
+        console.error('Yıllık ödeme başlatılamadı:', result);
+        return res.status(500).json({ message: 'Yıllık ödeme başlatılamadı', iyzicoError: result.errorMessage });
+      }
 
-      iyzipay.subscription.create(subscriptionRequest, async (subErr, subResult) => {
-        if (subErr || subResult.status !== 'success') {
-          console.error('Abonelik oluşturulamadı:', subErr || subResult);
-          return res.status(500).json({ message: 'Abonelik oluşturulamadı' });
-        }
+      // DB'yi pending yap
+      await pool.request()
+        .input('user_id', userId)
+        .input('checkout_token', result.token || '')
+        .query(`
+          UPDATE Subscriptions 
+          SET 
+            checkout_token = @checkout_token,
+            status = 'pending',
+            subscription_start = NULL,
+            subscription_end = NULL
+          WHERE user_id = @user_id
+        `);
 
-        // 3. Veritabanını güncelle (ÖDEME OLMADAN PENDING)
-        await pool.request()
-          .input('user_id', userId)
-          .input('plan_ref', planResult.referenceCode)
-          .input('sub_ref', subResult.referenceCode)
-          .input('checkout_token', subResult.token || '')
-          .query(`
-            UPDATE Subscriptions 
-            SET 
-              pricing_plan_reference = @plan_ref,
-              iyzico_reference = @sub_ref,
-              checkout_token = @checkout_token,
-              status = 'pending',
-              subscription_start = NULL,
-              subscription_end = NULL
-            WHERE user_id = @user_id
-          `);
-
-        res.json({
-          success: true,
-          paymentPageUrl: subResult.checkoutFormContentUrl || subResult.paymentPageUrl,
-          subscriptionReferenceCode: subResult.referenceCode
-        });
+      res.json({
+        success: true,
+        paymentPageUrl: result.paymentPageUrl,
+        token: result.token
       });
     });
   } catch (err) {
-    console.error("INIT ERROR:", err);
-    res.status(500).json({ message: 'Sunucu hatası' });
+    console.error("INITIALIZE CHECKOUT ERROR:", err.message, err.stack);
+    res.status(500).json({ message: 'Sunucu hatası', error: err.message });
+  }
+};
+
+/* ===============================
+   ÖDEME SONRASI DOĞRULAMA (CALLBACK)
+   - Trial içinde ise trial_end +1 yıl, değilse now +1 yıl
+================================ */
+export const retrieveCheckout = async (req, res) => {
+  const { token } = req.body;
+
+  if (!token) {
+    return res.status(400).json({ message: 'Token gerekli' });
+  }
+
+  iyzipay.checkoutForm.retrieve(
+    { locale: 'tr', token },
+    async (err, result) => {
+      if (err || result.status !== 'success') {
+        console.error('Retrieve hatası:', err || result);
+        return res.status(400).json({ message: 'Doğrulama başarısız' });
+      }
+
+      if (result.paymentStatus === 'SUCCESS') {
+        try {
+          const pool = await poolPromise;
+
+          const currentSub = (await pool.request()
+            .input('token', token)
+            .query(`
+              SELECT trial_end, status, trial_start
+              FROM Subscriptions 
+              WHERE checkout_token = @token
+            `)).recordset[0];
+
+          if (!currentSub) {
+            return res.status(404).json({ message: 'Abonelik bulunamadı' });
+          }
+
+          const now = new Date();
+          let newStart = new Date(now);
+          let newEndDate = new Date(newStart);
+          newEndDate.setFullYear(newEndDate.getFullYear() + 1);
+
+          if (currentSub.status === 'trial' && 
+              currentSub.trial_start && 
+              currentSub.trial_end && 
+              now >= new Date(currentSub.trial_start) && 
+              now <= new Date(currentSub.trial_end)) {
+            // Trial içindeyse trial_end +1 yıl
+            newStart = new Date(currentSub.trial_end);
+            newEndDate = new Date(newStart);
+            newEndDate.setFullYear(newEndDate.getFullYear() + 1);
+          }
+
+          await pool.request()
+            .input('token', token)
+            .input('new_start', newStart)
+            .input('new_end', newEndDate)
+            .query(`
+              UPDATE Subscriptions 
+              SET 
+                  status = 'active',
+                  subscription_start = @new_start,
+                  subscription_end = @new_end
+              WHERE checkout_token = @token
+            `);
+
+          return res.json({
+            success: true,
+            message: 'Ödeme başarılı, abonelik aktif edildi',
+            subscription_end: newEndDate.toISOString()
+          });
+        } catch (dbErr) {
+          console.error("DB UPDATE ERROR:", dbErr);
+          return res.status(500).json({ message: 'DB güncelleme hatası' });
+        }
+      } else {
+        return res.json({
+          success: false,
+          message: 'Ödeme başarısız veya beklemede'
+        });
+      }
+    }
+  );
+};
+
+/* ===============================
+   HAYVAN SAYISI GÜNCELLEME
+   - Trial veya active ise çalışır
+   - Süre dolmadıysa hayvan sayısını değiştirir
+================================ */
+export const updateAnimalCount = async (req, res) => {
+  const userId = req.user.id;
+  const { buyukbas_count = 0, kucukbas_count = 0 } = req.body;
+
+  try {
+    const pool = await poolPromise;
+
+    const subResult = await pool.request()
+      .input('user_id', userId)
+      .query(`
+        SELECT status, subscription_end, trial_end, trial_start
+        FROM Subscriptions 
+        WHERE user_id = @user_id
+      `);
+
+    const sub = subResult.recordset[0];
+
+    if (!sub) {
+      return res.status(404).json({ message: 'Abonelik bulunamadı' });
+    }
+
+    if (sub.status !== 'active' && sub.status !== 'trial') {
+      return res.status(400).json({ message: 'Abonelik aktif veya deneme değil' });
+    }
+
+    const endDate = sub.status === 'active' ? sub.subscription_end : sub.trial_end;
+    const startDate = sub.status === 'active' ? sub.subscription_start : sub.trial_start;
+
+    if (!endDate || new Date() > new Date(endDate)) {
+      return res.status(400).json({ message: 'Süre dolmuş, yenileme yapmalısınız' });
+    }
+
+    const buyukbasPrice = 1200;
+    const kucukbasPrice = 700;
+    const totalMonthly = (buyukbas_count * buyukbasPrice) + (kucukbas_count * kucukbasPrice);
+
+    await pool.request()
+      .input('user_id', userId)
+      .input('buyukbas_count', buyukbas_count)
+      .input('kucukbas_count', kucukbas_count)
+      .input('monthly_price', totalMonthly)
+      .query(`
+        UPDATE Subscriptions 
+        SET 
+          buyukbas_count = @buyukbas_count,
+          kucukbas_count = @kucukbas_count,
+          monthly_price = @monthly_price
+        WHERE user_id = @user_id
+      `);
+
+    res.json({
+      success: true,
+      message: 'Hayvan sayısı güncellendi',
+      new_monthly_price: totalMonthly
+    });
+  } catch (err) {
+    console.error("UPDATE ANIMAL COUNT ERROR:", err.message, err.stack);
+    res.status(500).json({ message: 'Güncelleme hatası', error: err.message });
   }
 };
 
@@ -155,153 +321,5 @@ export const getStatus = async (req, res) => {
 
   } catch (err) {
     res.status(500).json({ error: err.message });
-  }
-};
-
-/* ===============================
-   ÖDEME SONRASI DOĞRULAMA (CALLBACK)
-   - checkout_token ile retrieve yapılır
-   - subscription_end mantığı SENİN İSTEDİĞİN GİBİ
-================================ */
-export const retrieveCheckout = async (req, res) => {
-  const { token } = req.body;
-
-  if (!token) {
-    return res.status(400).json({ message: 'Token gerekli' });
-  }
-
-  iyzipay.checkoutForm.retrieve(
-    {
-      locale: 'tr',
-      token
-    },
-    async (err, result) => {
-      if (err || result.status !== 'success') {
-        console.error('Retrieve hatası:', err || result);
-        return res.status(400).json({ message: 'Doğrulama başarısız' });
-      }
-
-      if (result.paymentStatus === 'SUCCESS') {
-        try {
-          const pool = await poolPromise;
-
-          // Mevcut abonelik bilgisini çek
-          const currentSub = (await pool.request()
-            .input('token', token)
-            .query(`
-              SELECT trial_start, trial_end
-              FROM Subscriptions 
-              WHERE checkout_token = @token
-            `)).recordset[0];
-
-          if (!currentSub) {
-            return res.status(404).json({ message: 'Abonelik bulunamadı' });
-          }
-
-          const now = new Date();
-          let newEndDate = new Date();
-
-          if (currentSub.trial_start && currentSub.trial_end && now >= currentSub.trial_start && now <= currentSub.trial_end) {
-            // Deneme içindeyse → trial_end + 1 yıl
-            newEndDate = new Date(currentSub.trial_end);
-            newEndDate.setFullYear(newEndDate.getFullYear() + 1);
-          } else {
-            // Deneme bittikten sonra → şimdi + 1 yıl
-            newEndDate.setFullYear(now.getFullYear() + 1);
-          }
-
-          await pool.request()
-            .input('token', token)
-            .input('new_end', newEndDate)
-            .query(`
-              UPDATE Subscriptions 
-              SET 
-                  status = 'active',
-                  subscription_start = GETDATE(),
-                  subscription_end = @new_end
-              WHERE checkout_token = @token
-            `);
-
-          return res.json({
-            success: true,
-            message: 'Ödeme başarılı, abonelik aktif edildi',
-            subscription_end: newEndDate.toISOString()
-          });
-        } catch (dbErr) {
-          console.error("DB UPDATE ERROR:", dbErr);
-          return res.status(500).json({ message: 'DB güncelleme hatası' });
-        }
-      } else {
-        return res.json({
-          success: false,
-          message: 'Ödeme başarısız veya beklemede'
-        });
-      }
-    }
-  );
-};
-
-
-/* ===============================
-   HAYVAN SAYISI GÜNCELLEME
-   - 1 yıl içinde hayvan sayısı değiştirme
-   - Ödeme sayfasına gitmeden DB güncellenir
-   - iyzico otomatik kesimde yeni tutar geçerli olur
-================================ */
-export const updateAnimalCount = async (req, res) => {
-  const userId = req.user.id;
-  const { buyukbas_count = 0, kucukbas_count = 0 } = req.body;
-
-  try {
-    const pool = await poolPromise;
-
-    const subResult = await pool.request()
-      .input('user_id', userId)
-      .query(`
-        SELECT status, subscription_end
-        FROM Subscriptions 
-        WHERE user_id = @user_id
-      `);
-
-    const sub = subResult.recordset[0];
-
-    if (!sub) {
-      return res.status(404).json({ message: 'Abonelik bulunamadı' });
-    }
-
-    if (sub.status !== 'active') {
-      return res.status(400).json({ message: 'Abonelik aktif değil' });
-    }
-
-    if (new Date() > new Date(sub.subscription_end)) {
-      return res.status(400).json({ message: 'Abonelik süresi dolmuş, yenileme yapmalısınız' });
-    }
-
-    const buyukbasPrice = 1200;
-    const kucukbasPrice = 700;
-    const totalMonthly = (buyukbas_count * buyukbasPrice) + (kucukbas_count * kucukbasPrice);
-
-    await pool.request()
-      .input('user_id', userId)
-      .input('buyukbas_count', buyukbas_count)
-      .input('kucukbas_count', kucukbas_count)
-      .input('monthly_price', totalMonthly)
-      .query(`
-        UPDATE Subscriptions 
-        SET 
-          buyukbas_count = @buyukbas_count,
-          kucukbas_count = @kucukbas_count,
-          monthly_price = @monthly_price
-        WHERE user_id = @user_id
-      `);
-
-    res.json({
-      success: true,
-      message: 'Hayvan sayısı güncellendi',
-      new_monthly_price: totalMonthly
-    });
-  } catch (err) {
-    console.error("UPDATE ANIMAL COUNT ERROR:", err);
-    res.status(500).json({ message: 'Güncelleme hatası' });
   }
 };
