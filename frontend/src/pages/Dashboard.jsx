@@ -18,13 +18,14 @@ export default function Dashboard() {
   const [subscriptionInfo, setSubscriptionInfo] = useState(null);
   const [isScanning, setIsScanning] = useState(false);
 
-  // Hayvan güncelleme modalı
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [updateForm, setUpdateForm] = useState({
     buyukbas_count: 0,
     kucukbas_count: 0
   });
   const [updateLoading, setUpdateLoading] = useState(false);
+
+  const [mapLoading, setMapLoading] = useState(true);
 
   const mapContainer = useRef(null);
   const map = useRef(null);
@@ -45,8 +46,8 @@ export default function Dashboard() {
           api.get('/api/areas')
         ]);
 
-        setAnimals(animalData || []);
-        setAreas(areaData || []);
+        setAnimals(animalData?.data || animalData || []);
+        setAreas(areaData?.data || areaData || []);
       } catch (err) {
         setError(err.message || 'Veri alınamadı');
         navigate('/login');
@@ -58,7 +59,6 @@ export default function Dashboard() {
     fetchAll();
   }, [token, navigate]);
 
-  // HARİTA BAŞLATMA – GÖRÜNÜRLÜK GARANTİLİ
   useEffect(() => {
     if (!mapContainer.current || map.current) return;
 
@@ -66,9 +66,9 @@ export default function Dashboard() {
     console.log('MapTiler API Key:', apiKey ? 'var' : 'YOK!');
 
     if (!apiKey) {
-      console.error('HATA: VITE_MAPTILER_API_KEY .env dosyasında tanımlı değil!');
+      console.error('HATA: VITE_MAPTILER_API_KEY eksik!');
       if (mapContainer.current) {
-        mapContainer.current.innerHTML = '<div class="h-full flex items-center justify-center text-red-600">MapTiler API Key eksik! .env dosyasına VITE_MAPTILER_API_KEY ekleyin.</div>';
+        mapContainer.current.innerHTML = '<div class="h-full flex items-center justify-center text-red-600">MapTiler API Key eksik!</div>';
       }
       return;
     }
@@ -84,43 +84,32 @@ export default function Dashboard() {
 
       map.current.addControl(new maplibregl.NavigationControl(), 'top-right');
 
-      // Harita yüklendiğinde çalışır
       map.current.on('load', () => {
-        console.log('HARİTA TAMAMEN YÜKLENDİ!');
+        console.log('HARİTA YÜKLENDİ!');
+        setMapLoading(false);
 
-        // Test için her zaman görünen yeşil marker (merkez)
         new maplibregl.Marker({ color: '#00FF00' })
           .setLngLat([32.85, 39.93])
-          .setPopup(new maplibregl.Popup().setText('Harita Çalışıyor – Test Noktası'))
+          .setPopup(new maplibregl.Popup().setText('Test Noktası'))
           .addTo(map.current);
 
-        // Hayvan marker'ları
         animals.forEach((a, index) => {
           if (!a.last_lat || !a.last_lng) return;
-
-          const offset = index * 0.0005; // üst üste binmemek için
-          const lng = Number(a.last_lng) + offset;
-          const lat = Number(a.last_lat) + offset;
-
+          const offset = index * 0.0005;
           new maplibregl.Marker({ color: '#FF0000' })
-            .setLngLat([lng, lat])
+            .setLngLat([Number(a.last_lng) + offset, Number(a.last_lat) + offset])
             .setPopup(new maplibregl.Popup().setText(a.code || 'Hayvan'))
             .addTo(map.current);
         });
 
-        // Alan polygon'ları
         areas.forEach(area => {
           if (!area.polygon || area.polygon.length < 3) return;
-
           try {
             map.current.addSource(`area-${area.id}`, {
               type: 'geojson',
               data: {
                 type: 'Feature',
-                geometry: {
-                  type: 'Polygon',
-                  coordinates: [area.polygon]
-                }
+                geometry: { type: 'Polygon', coordinates: [area.polygon] }
               }
             });
 
@@ -128,36 +117,24 @@ export default function Dashboard() {
               id: `area-fill-${area.id}`,
               type: 'fill',
               source: `area-${area.id}`,
-              paint: {
-                'fill-color': '#22c55e',
-                'fill-opacity': 0.35
-              }
+              paint: { 'fill-color': '#22c55e', 'fill-opacity': 0.35 }
             });
 
             map.current.addLayer({
               id: `area-outline-${area.id}`,
               type: 'line',
               source: `area-${area.id}`,
-              paint: {
-                'line-color': '#16a34a',
-                'line-width': 3
-              }
+              paint: { 'line-color': '#16a34a', 'line-width': 3 }
             });
-          } catch (polyErr) {
-            console.error('Polygon ekleme hatası:', polyErr);
+          } catch (e) {
+            console.error('Polygon hatası:', e);
           }
         });
       });
 
-      // Hata yakalama
-      map.current.on('error', (e) => {
-        console.error('MapLibre hata:', e);
-      });
-    } catch (mapErr) {
-      console.error('Harita başlatılamadı:', mapErr);
-      if (mapContainer.current) {
-        mapContainer.current.innerHTML = '<div class="h-full flex items-center justify-center text-red-600">Harita başlatılamadı: ' + mapErr.message + '</div>';
-      }
+      map.current.on('error', e => console.error('Map error:', e));
+    } catch (err) {
+      console.error('Harita başlatılamadı:', err);
     }
 
     return () => {
@@ -166,34 +143,72 @@ export default function Dashboard() {
         map.current = null;
       }
     };
-  }, [animals, areas]); // animals ve areas değiştiğinde güncelle
+  }, [animals, areas]);
 
+  // QR TARAYICI – SON HALİ
   useEffect(() => {
     if (!isScanning) return;
 
     const qr = new Html5Qrcode("qr-reader-container");
     scannerRef.current = qr;
 
+    let isMounted = true;
+
     qr.start(
       { facingMode: "environment" },
       { fps: 10, qrbox: 280 },
       async (decodedText) => {
+        if (!isMounted) return;
+
+        console.log("QR başarıyla okundu:", decodedText);
         setScanResult(decodedText);
         setIsScanning(false);
-        await qr.stop();
+
+        // Kamerayı kapat (hata olsa bile devam)
+        qr.stop().catch(() => {});
 
         try {
-          await api.post('/api/animals', { code: decodedText });
-          const updated = await api.get('/api/animals');
-          setAnimals(updated || []);
-          alert("Hayvan başarıyla eklendi!");
+          console.log("POST /api/animals gönderiliyor...");
+          const postResponse = await api.post('/api/animals', { code: decodedText });
+          console.log("POST cevabı:", postResponse);
+
+          console.log("GET /api/animals alınıyor...");
+          const getResponse = await api.get('/api/animals');
+          const yeniListe = getResponse?.data || getResponse || [];
+          console.log("Güncel hayvan listesi:", yeniListe);
+
+          setAnimals(yeniListe);
+
+          alert(
+            `Hayvan başarıyla eklendi!\n` +
+            `Kod: ${decodedText}\n` +
+            `Toplam hayvan sayısı: ${yeniListe.length}\n` +
+            `Sunucu cevabı: ${JSON.stringify(postResponse?.data || 'Başarılı görünüyor')}`
+          );
         } catch (err) {
-          alert("Hayvan eklenemedi");
+          console.error("API hatası detay:", err.response?.data || err.message);
+          alert(
+            "Hayvan eklenemedi!\n" +
+            "Hata: " + (err.response?.data?.message || err.message || "Sunucu yanıtı yok")
+          );
         }
       }
-    ).catch(console.error);
+    ).catch(err => console.error("QR start hatası:", err));
 
-    return () => qr.stop().catch(() => {});
+    return () => {
+      isMounted = false;
+      if (scannerRef.current) {
+        scannerRef.current.stop().catch(err => {
+          // Development'ta çıkan yaygın hata → tamamen sessiz ignore
+          if (err?.message?.includes("not running") || err?.message?.includes("paused")) {
+            // ignore
+          } else {
+            console.warn("Scanner durdurma uyarısı:", err.message);
+          }
+        });
+        scannerRef.current = null;
+      }
+    };
   }, [isScanning]);
 
   const handleLogout = () => {
@@ -390,7 +405,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* HARİTA – DÜZELTİLMİŞ HALİ */}
+          {/* HARİTA */}
           <div className="bg-white rounded-2xl shadow-md p-6 border border-gray-200">
             <h3 className="text-xl sm:text-2xl font-semibold mb-4 text-right lg:text-left">Sürü Haritası</h3>
             
@@ -399,16 +414,17 @@ export default function Dashboard() {
               className="w-full rounded-xl overflow-hidden border border-gray-300 bg-gray-200 relative"
               style={{ height: '600px' }}
             >
-              {/* Harita yüklenirken gösterilecek placeholder */}
-              <div className="absolute inset-0 flex items-center justify-center text-gray-600 bg-gray-100 bg-opacity-80 z-10">
-                Harita yükleniyor... (API Key kontrol ediliyor)
-              </div>
+              {mapLoading && (
+                <div className="absolute inset-0 flex items-center justify-center text-gray-600 bg-gray-100 bg-opacity-80 z-10">
+                  Harita yükleniyor... (API Key kontrol ediliyor)
+                </div>
+              )}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Hayvan Sayısı Güncelleme Modal – aynı */}
+      {/* Hayvan Sayısı Güncelleme Modal */}
       {showUpdateModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white p-8 rounded-xl shadow-2xl max-w-md w-full">

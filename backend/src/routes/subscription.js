@@ -3,6 +3,7 @@ import authMiddleware from '../middleware/auth.js';
 import { initializeCheckout, getStatus, retrieveCheckout , updateAnimalCount} from '../controllers/subscription.js';
 import iyzipay from '../config/iyzico.js';
 import { startRenewal, verifyRenewal } from '../controllers/subscriptionRenewal.js';
+
 const router = Router();
 
 router.post('/initialize', authMiddleware, initializeCheckout);
@@ -34,6 +35,8 @@ router.post('/update-animals', authMiddleware, updateAnimalCount);
 // YENİ yenileme endpoint'leri
 router.post('/renew', authMiddleware, startRenewal);
 router.post('/renew/verify', verifyRenewal);
+
+
 
 
 

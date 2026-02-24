@@ -17,10 +17,9 @@ function formatDate(date = new Date()) {
   );
 }
 
-/* ===============================
-   YILLIK TEK SEFERLİK YENİLEME BAŞLAT
-   - Mevcut subscription_end +1 yıl
-================================ */
+/* =========================================
+   YILLIK YENİLEME BAŞLAT
+========================================= */
 export const startRenewal = async (req, res) => {
   const userId = req.user.id;
 
@@ -63,18 +62,18 @@ export const startRenewal = async (req, res) => {
       basketId: `RENEW_${userId}_${Date.now()}`,
       paymentChannel: 'WEB',
       paymentGroup: 'SUBSCRIPTION',
-     callbackUrl: "http://localhost:5000/api/subscriptions/renew/verify", 
+      callbackUrl: "http://localhost:5000/api/subscriptions/renew/verify",
 
       buyer: {
         id: userId.toString(),
-        name: 'Ad Soyad',
+        name: 'Ad',
         surname: 'Soyad',
         identityNumber: '12345678901',
-        email: sub.email || 'zorunlu@email.com',
+        email: sub.email,
         gsmNumber: sub.phone || '+905551234567',
         registrationDate: formatDate(new Date()),
         lastLoginDate: formatDate(new Date()),
-        registrationAddress: sub.address || 'Test Adresi, İstanbul, Türkiye',
+        registrationAddress: sub.address || 'İstanbul',
         city: 'İstanbul',
         country: 'Turkey',
         zipCode: '34000',
@@ -82,18 +81,18 @@ export const startRenewal = async (req, res) => {
       },
 
       billingAddress: {
-        contactName: 'Fatura Adı Soyadı',
+        contactName: 'Ad Soyad',
         city: 'İstanbul',
         country: 'Turkey',
-        address: sub.address || 'Test Fatura Adresi, İstanbul, Türkiye',
+        address: sub.address || 'İstanbul',
         zipCode: '34000'
       },
 
       shippingAddress: {
-        contactName: 'Teslimat Adı Soyadı',
+        contactName: 'Ad Soyad',
         city: 'İstanbul',
         country: 'Turkey',
-        address: sub.address || 'Test Teslimat Adresi, İstanbul, Türkiye',
+        address: sub.address || 'İstanbul',
         zipCode: '34000'
       },
 
@@ -109,30 +108,41 @@ export const startRenewal = async (req, res) => {
     iyzipay.checkoutFormInitialize.create(request, async (err, result) => {
       if (err) {
         console.error('iyzico ERR:', err);
-        return res.status(500).json({ message: 'iyzico çağrı hatası', error: err.message });
+        return res.status(500).json({ message: 'iyzico çağrı hatası' });
       }
 
       if (result.status !== 'success') {
         console.error('Yenileme başlatılamadı:', result);
-        return res.status(500).json({ message: 'Yenileme başlatılamadı', iyzicoError: result.errorMessage });
+        return res.status(500).json({ message: result.errorMessage });
       }
 
-      res.json({
+      /* 🔥 TOKEN DB'YE KAYDEDİLİYOR */
+      await pool.request()
+        .input('user_id', userId)
+        .input('token', result.token)
+        .query(`
+          UPDATE Subscriptions
+          SET checkout_token = @token
+          WHERE user_id = @user_id
+        `);
+
+      return res.json({
         success: true,
         paymentPageUrl: result.paymentPageUrl,
         token: result.token
       });
     });
+
   } catch (err) {
-    console.error("RENEW INIT ERROR:", err.message, err.stack);
-    res.status(500).json({ message: 'Sunucu hatası', error: err.message });
+    console.error("RENEW INIT ERROR:", err);
+    return res.status(500).json({ message: 'Sunucu hatası' });
   }
 };
 
-/* ===============================
-   YENİLEME ÖDEME DOĞRULAMA
-   - Mevcut subscription_end +1 yıl
-================================ */
+
+/* =========================================
+   YENİLEME DOĞRULAMA
+========================================= */
 export const verifyRenewal = async (req, res) => {
   const { token } = req.body;
 
@@ -143,62 +153,65 @@ export const verifyRenewal = async (req, res) => {
   iyzipay.checkoutForm.retrieve(
     { locale: 'tr', token },
     async (err, result) => {
+
       if (err || result.status !== 'success') {
-        console.error('Yenileme retrieve hatası:', err || result);
+        console.error("Retrieve hata:", err || result);
         return res.status(400).json({ message: 'Doğrulama başarısız' });
       }
 
-      if (result.paymentStatus === 'SUCCESS') {
-        try {
-          const pool = await poolPromise;
-
-          const currentSub = (await pool.request()
-            .input('token', token)
-            .query(`
-              SELECT subscription_end
-              FROM Subscriptions 
-              WHERE checkout_token = @token
-            `)).recordset[0];
-
-          if (!currentSub) {
-            return res.status(404).json({ message: 'Abonelik bulunamadı' });
-          }
-
-          const oldEnd = new Date(currentSub.subscription_end);
-          const newStart = new Date(oldEnd);
-          newStart.setSeconds(newStart.getSeconds() + 1);
-
-          const newEndDate = new Date(newStart);
-          newEndDate.setFullYear(newEndDate.getFullYear() + 1);
-
-          await pool.request()
-            .input('token', token)
-            .input('new_start', newStart)
-            .input('new_end', newEndDate)
-            .query(`
-              UPDATE Subscriptions 
-              SET 
-                  status = 'active',
-                  subscription_start = @new_start,
-                  subscription_end = @new_end
-              WHERE checkout_token = @token
-            `);
-
-          return res.json({
-            success: true,
-            message: 'Yenileme başarılı, abonelik 1 yıl uzatıldı',
-            subscription_start: newStart.toISOString(),
-            subscription_end: newEndDate.toISOString()
-          });
-        } catch (dbErr) {
-          console.error("DB UPDATE ERROR:", dbErr);
-          return res.status(500).json({ message: 'DB güncelleme hatası' });
-        }
-      } else {
+      if (result.paymentStatus !== 'SUCCESS') {
         return res.json({
           success: false,
           message: 'Ödeme başarısız veya beklemede'
         });
+      }
+
+      try {
+        const pool = await poolPromise;
+
+        const currentSub = (await pool.request()
+          .input('token', token)
+          .query(`
+            SELECT subscription_end
+            FROM Subscriptions
+            WHERE checkout_token = @token
+          `)).recordset[0];
+
+        if (!currentSub) {
+          return res.status(404).json({ message: 'Abonelik bulunamadı' });
+        }
+
+        const oldEnd = new Date(currentSub.subscription_end);
+        const newStart = new Date(oldEnd);
+        newStart.setSeconds(newStart.getSeconds() + 1);
+
+        const newEnd = new Date(newStart);
+        newEnd.setFullYear(newEnd.getFullYear() + 1);
+
+        await pool.request()
+          .input('token', token)
+          .input('new_start', newStart)
+          .input('new_end', newEnd)
+          .query(`
+            UPDATE Subscriptions
+            SET 
+              subscription_start = @new_start,
+              subscription_end = @new_end,
+              status = 'active',
+              checkout_token = NULL
+            WHERE checkout_token = @token
+          `);
+
+        return res.json({
+          success: true,
+          message: 'Yenileme başarılı, abonelik 1 yıl uzatıldı',
+          subscription_start: newStart.toISOString(),
+          subscription_end: newEnd.toISOString()
+        });
+
+      } catch (dbErr) {
+        console.error("DB UPDATE ERROR:", dbErr);
+        return res.status(500).json({ message: 'DB güncelleme hatası' });
       }
     }
   );
