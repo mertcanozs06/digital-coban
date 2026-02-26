@@ -145,7 +145,6 @@ export default function Dashboard() {
     };
   }, [animals, areas]);
 
-  // QR TARAYICI – SON HALİ
   useEffect(() => {
     if (!isScanning) return;
 
@@ -164,7 +163,6 @@ export default function Dashboard() {
         setScanResult(decodedText);
         setIsScanning(false);
 
-        // Kamerayı kapat (hata olsa bile devam)
         qr.stop().catch(() => {});
 
         try {
@@ -172,9 +170,12 @@ export default function Dashboard() {
           const postResponse = await api.post('/api/animals', { code: decodedText });
           console.log("POST cevabı:", postResponse);
 
+          if (!postResponse.success) {
+            throw new Error(postResponse.message || 'Backend ekleme başarısız');
+          }
+
           console.log("GET /api/animals alınıyor...");
-          const getResponse = await api.get('/api/animals');
-          const yeniListe = getResponse?.data || getResponse || [];
+          const yeniListe = await api.get('/api/animals');
           console.log("Güncel hayvan listesi:", yeniListe);
 
           setAnimals(yeniListe);
@@ -183,7 +184,7 @@ export default function Dashboard() {
             `Hayvan başarıyla eklendi!\n` +
             `Kod: ${decodedText}\n` +
             `Toplam hayvan sayısı: ${yeniListe.length}\n` +
-            `Sunucu cevabı: ${JSON.stringify(postResponse?.data || 'Başarılı görünüyor')}`
+            `Sunucu cevabı: ${JSON.stringify(postResponse)}`
           );
         } catch (err) {
           console.error("API hatası detay:", err.response?.data || err.message);
@@ -199,7 +200,6 @@ export default function Dashboard() {
       isMounted = false;
       if (scannerRef.current) {
         scannerRef.current.stop().catch(err => {
-          // Development'ta çıkan yaygın hata → tamamen sessiz ignore
           if (err?.message?.includes("not running") || err?.message?.includes("paused")) {
             // ignore
           } else {

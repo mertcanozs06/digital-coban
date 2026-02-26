@@ -62,7 +62,7 @@ export const startRenewal = async (req, res) => {
       basketId: `RENEW_${userId}_${Date.now()}`,
       paymentChannel: 'WEB',
       paymentGroup: 'SUBSCRIPTION',
-      callbackUrl: "http://localhost:5000/api/subscriptions/renew/verify",
+callbackUrl: "http://localhost:5000/api/subscriptions/renew/callback",
 
       buyer: {
         id: userId.toString(),

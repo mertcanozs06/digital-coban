@@ -10,14 +10,28 @@ import areaRouter from './routes/area.js';               // ekle
  import './cron.js';
 const app = express();
 
+// CORS ayarını yap (localhost:5173 için)
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: 'http://localhost:5173',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 }));
+
+// OPTIONS pre-flight için otomatik CORS middleware yeterli, ekstra gerek yok
+// ama istersen manuel ekleyebilirsin:
+// app.options('*', cors());
 
 app.use(express.json());
 
 app.use(express.urlencoded({ extended: true }));
+
+// Her isteği logla (debug için çok faydalı)
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  console.log('Body:', req.body);
+  next();
+});
 
 
 // Gerçek rotalar
@@ -26,26 +40,12 @@ app.use('/api/subscriptions', subscriptionRouter);
 app.use('/api/animals', animalRouter);
 app.use('/api/areas', areaRouter);
 
-// Test / mock rotalar (geliştirme için - production'da kaldır)
-app.get('/api/subscriptions/status', (req, res) => {
-  res.json({
-    status: 'active',
-    trial_end: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-    monthly_price: 1200
-  });
+// Hata yakalama middleware (opsiyonel ama önerilir)
+app.use((err, req, res, next) => {
+  console.error('EXPRESS HATASI:', err.stack);
+  res.status(500).json({ success: false, message: 'Sunucu hatası', error: err.message });
 });
 
-app.post('/api/subscriptions/initialize', (req, res) => {
-  res.json({
-    success: true,
-    paymentPageUrl: 'https://sandbox.iyzico.com/payment-page-url'
-  });
-});
-
-app.get('/api/animals', (req, res) => res.json([]));
-app.post('/api/animals', (req, res) => res.json({ success: true }));
-app.get('/api/areas', (req, res) => res.json([]));
-app.post('/api/areas', (req, res) => res.json({ success: true }));
 
 const PORT = 5000;
 

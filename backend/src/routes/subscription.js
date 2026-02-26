@@ -36,6 +36,17 @@ router.post('/update-animals', authMiddleware, updateAnimalCount);
 router.post('/renew', authMiddleware, startRenewal);
 router.post('/renew/verify', verifyRenewal);
 
+router.post('/renew/callback', async (req, res) => {
+  const { token } = req.body;
+
+  if (!token) {
+    return res.redirect('http://localhost:5173/login');
+  }
+
+  // frontend'e yönlendiriyoruz
+  return res.redirect(`http://localhost:5173/renewal-callback?token=${token}`);
+});
+
 
 
 

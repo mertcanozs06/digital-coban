@@ -1,81 +1,64 @@
 import { poolPromise } from '../config/db.js';
 
+const BASE_LAT = 39.93;
+const BASE_LNG = 32.85;
+
+/* ============================
+   HAYVAN EKLE
+============================ */
 export const addAnimal = async (req, res) => {
-  const userId = req.user?.id;
   const { code } = req.body;
+  const userId = req.user.id;
 
-  console.log('╔════════════════════════════════════════╗');
-  console.log('║          ADD ANIMAL İSTEĞİ GELDİ       ║');
-  console.log('╚════════════════════════════════════════╝');
-  console.log('Gelen kod:', code || '(boş)');
-  console.log('JWT userId:', userId || '(yok)');
-
-  if (!userId) {
-    console.log('HATA: userId bulunamadı');
-    return res.status(401).json({ success: false, message: 'Kullanıcı kimliği yok' });
-  }
-
-  // Test için geçici olarak kontrolü gevşet (sonra geri sıkılaştır)
   if (!code) {
-    return res.status(400).json({ success: false, message: 'Kod boş' });
+    return res.status(400).json({ message: 'QR kod gerekli' });
   }
 
   try {
     const pool = await poolPromise;
-    console.log('DB bağlantısı kuruldu');
 
-    const transaction = pool.transaction();
-    await transaction.begin();
+    const existing = await pool.request()
+      .input('code', code)
+      .query(`SELECT id FROM Animals WHERE code = @code`);
 
-    try {
-      const request = transaction.request();
-      request.input('user_id', userId);
-      request.input('code', code);
-      request.input('name', `TestHayvan-${Date.now()}`); // unique isim
-      request.input('last_lat', 39.93);
-      request.input('last_lng', 32.85);
+    if (existing.recordset.length > 0) {
+      return res.status(400).json({ message: 'Bu QR kod zaten kayıtlı' });
+    }
 
-      const result = await request.query(`
-        INSERT INTO Animals (user_id, code, name, last_lat, last_lng)
-        VALUES (@user_id, @code, @name, @last_lat, @last_lng)
+    const countResult = await pool.request()
+      .input('user_id', userId)
+      .query(`SELECT COUNT(*) as total FROM Animals WHERE user_id = @user_id`);
+
+    const animalCount = countResult.recordset[0].total;
+    const offset = animalCount * 0.001;
+
+    const newLat = BASE_LAT + offset;
+    const newLng = BASE_LNG + offset;
+
+    await pool.request()
+      .input('code', code)
+      .input('user_id', userId)
+      .input('name', 'Yeni Hayvan')
+      .input('lat', newLat)
+      .input('lng', newLng)
+      .query(`
+        INSERT INTO Animals 
+        (code, user_id, name, last_lat, last_lng, last_location_time, location_visible)
+        VALUES 
+        (@code, @user_id, @name, @lat, @lng, GETDATE(), 1)
       `);
 
-      console.log('INSERT sonucu:', result);
-      console.log('Etkilenen satır sayısı:', result.rowsAffected[0]);
-
-      await transaction.commit();
-
-      res.json({ 
-        success: true, 
-        message: 'Hayvan eklendi',
-        rowsAffected: result.rowsAffected[0],
-        insertedCode: code
-      });
-    } catch (innerErr) {
-      await transaction.rollback();
-      console.error('Transaction iç hata:', innerErr.message);
-      throw innerErr;
-    }
+    res.status(201).json({ success: true });
   } catch (err) {
-    console.error('ADD ANIMAL GENEL HATASI:', err.message);
-    console.error('Hata stack:', err.stack);
-
-    res.status(500).json({ 
-      success: false,
-      message: 'Hayvan eklenemedi',
-      error: err.message,
-      sqlCode: err.code || 'bilinmiyor'
-    });
+    res.status(500).json({ message: err.message });
   }
 };
 
+/* ============================
+   LİSTELE
+============================ */
 export const getAnimals = async (req, res) => {
-  const userId = req.user?.id;
-
-  console.log('╔════════════════════════════════════════╗');
-  console.log('║         GET ANIMALS İSTEĞİ GELDİ       ║');
-  console.log('╚════════════════════════════════════════╝');
-  console.log('Sorgulanan userId:', userId || '(yok)');
+  const userId = req.user.id;
 
   try {
     const pool = await poolPromise;
@@ -83,17 +66,68 @@ export const getAnimals = async (req, res) => {
     const result = await pool.request()
       .input('user_id', userId)
       .query(`
-        SELECT * FROM Animals WHERE user_id = @user_id ORDER BY id DESC
+        SELECT id, code, name, last_lat, last_lng,
+               last_location_time, location_visible
+        FROM Animals
+        WHERE user_id = @user_id
+        ORDER BY id DESC
       `);
-
-    console.log('Bulunan hayvan sayısı:', result.recordset.length);
-    if (result.recordset.length > 0) {
-      console.log('İlk hayvan:', result.recordset[0]);
-    }
 
     res.json(result.recordset);
   } catch (err) {
-    console.error('GET ANIMALS HATASI:', err.message);
-    res.status(500).json({ success: false, message: 'Liste alınamadı', error: err.message });
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/* ============================
+   İSİM DEĞİŞTİR
+============================ */
+export const renameAnimal = async (req, res) => {
+  const { id } = req.params;
+  const { name } = req.body;
+  const userId = req.user.id;
+
+  try {
+    const pool = await poolPromise;
+
+    await pool.request()
+      .input('id', id)
+      .input('user_id', userId)
+      .input('name', name)
+      .query(`
+        UPDATE Animals 
+        SET name = @name
+        WHERE id = @id AND user_id = @user_id
+      `);
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/* ============================
+   KONUM GÖRÜNÜRLÜK TOGGLE
+============================ */
+export const toggleLocation = async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user.id;
+
+  try {
+    const pool = await poolPromise;
+
+    await pool.request()
+      .input('id', id)
+      .input('user_id', userId)
+      .query(`
+        UPDATE Animals
+        SET location_visible = 
+            CASE WHEN location_visible = 1 THEN 0 ELSE 1 END
+        WHERE id = @id AND user_id = @user_id
+      `);
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 };
