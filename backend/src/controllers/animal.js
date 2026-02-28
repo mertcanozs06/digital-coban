@@ -50,6 +50,7 @@ export const addAnimal = async (req, res) => {
 
     res.status(201).json({ success: true });
   } catch (err) {
+    console.error('HAYVAN EKLEME HATASI:', err.message, err.stack);
     res.status(500).json({ message: err.message });
   }
 };
@@ -75,59 +76,77 @@ export const getAnimals = async (req, res) => {
 
     res.json(result.recordset);
   } catch (err) {
+    console.error('HAYVAN LİSTELEME HATASI:', err.message);
     res.status(500).json({ message: err.message });
   }
 };
 
 /* ============================
-   İSİM DEĞİŞTİR
+   İSİM DEĞİŞTİR (code ile)
 ============================ */
 export const renameAnimal = async (req, res) => {
-  const { id } = req.params;
-  const { name } = req.body;
+  const { code, name } = req.body;
   const userId = req.user.id;
+
+  if (!code || !name) {
+    return res.status(400).json({ message: 'Code ve yeni isim gerekli' });
+  }
 
   try {
     const pool = await poolPromise;
 
-    await pool.request()
-      .input('id', id)
+    const result = await pool.request()
+      .input('code', code)
       .input('user_id', userId)
       .input('name', name)
       .query(`
         UPDATE Animals 
         SET name = @name
-        WHERE id = @id AND user_id = @user_id
+        WHERE code = @code AND user_id = @user_id
       `);
+
+    if (result.rowsAffected[0] === 0) {
+      return res.status(404).json({ message: 'Hayvan bulunamadı veya yetki yok' });
+    }
 
     res.json({ success: true });
   } catch (err) {
+    console.error('İSİM DEĞİŞTİRME HATASI:', err.message);
     res.status(500).json({ message: err.message });
   }
 };
 
 /* ============================
-   KONUM GÖRÜNÜRLÜK TOGGLE
+   KONUM GÖRÜNÜRLÜK TOGGLE (code ile)
 ============================ */
 export const toggleLocation = async (req, res) => {
-  const { id } = req.params;
+  const { code } = req.body;
   const userId = req.user.id;
+
+  if (!code) {
+    return res.status(400).json({ message: 'Code gerekli' });
+  }
 
   try {
     const pool = await poolPromise;
 
-    await pool.request()
-      .input('id', id)
+    const result = await pool.request()
+      .input('code', code)
       .input('user_id', userId)
       .query(`
         UPDATE Animals
         SET location_visible = 
             CASE WHEN location_visible = 1 THEN 0 ELSE 1 END
-        WHERE id = @id AND user_id = @user_id
+        WHERE code = @code AND user_id = @user_id
       `);
+
+    if (result.rowsAffected[0] === 0) {
+      return res.status(404).json({ message: 'Hayvan bulunamadı veya yetki yok' });
+    }
 
     res.json({ success: true });
   } catch (err) {
+    console.error('TOGGLE LOCATION HATASI:', err.message);
     res.status(500).json({ message: err.message });
   }
 };

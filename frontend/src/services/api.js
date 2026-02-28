@@ -38,4 +38,6 @@ async function req(method, path, body = null) {
 export const api = {
   get: (path) => req('GET', path),
   post: (path, body = null) => req('POST', path, body),
+  // 🔥 BUNU EKLE
+  put: (path, body = null) => req('PUT', path, body),
 };

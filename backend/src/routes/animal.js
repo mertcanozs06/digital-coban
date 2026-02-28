@@ -11,7 +11,7 @@ const router = express.Router();
 
 router.post('/', authMiddleware, addAnimal);
 router.get('/', authMiddleware, getAnimals);
-router.put('/:id/rename', authMiddleware, renameAnimal);
-router.put('/:id/toggle-location', authMiddleware, toggleLocation);
+router.put('/rename', authMiddleware, renameAnimal);          // ← /rename (body'de code var)
+router.put('/toggle-location', authMiddleware, toggleLocation); // ← /toggle-location (body'de code var)
 
 export default router;
