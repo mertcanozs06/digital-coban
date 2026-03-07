@@ -7,7 +7,8 @@ import authRouter from './routes/auth.js';
 import subscriptionRouter from './routes/subscription.js'; // ekle
 import animalRouter from './routes/animal.js';           // ekle
 import areaRouter from './routes/area.js';               // ekle
- import './cron.js';
+import adminRouter from './routes/admin.js';
+import './cron.js';
 const app = express();
 
 // CORS ayarını yap (localhost:5173 için)
@@ -39,6 +40,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/subscriptions', subscriptionRouter);
 app.use('/api/animals', animalRouter);
 app.use('/api/areas', areaRouter);
+app.use('/api/admin', adminRouter);
 
 // Hata yakalama middleware (opsiyonel ama önerilir)
 app.use((err, req, res, next) => {

@@ -1,7 +1,7 @@
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
-async function req(method, path, body = null) {
-  const token = localStorage.getItem('token');
+async function req(method, path, body = null, customToken = null) {
+  const token = customToken || localStorage.getItem('token');
 
   const headers = {
     'Content-Type': 'application/json',
@@ -36,8 +36,7 @@ async function req(method, path, body = null) {
 }
 
 export const api = {
-  get: (path) => req('GET', path),
+  get: (path, token = null) => req('GET', path, null, token),
   post: (path, body = null) => req('POST', path, body),
-  // 🔥 BUNU EKLE
   put: (path, body = null) => req('PUT', path, body),
 };

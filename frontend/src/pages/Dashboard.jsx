@@ -41,6 +41,22 @@ export default function Dashboard() {
     if (!token) navigate('/login');
   }, [token, navigate]);
 
+  // Admin kontrolü
+  useEffect(() => {
+    const checkRole = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const data = await api.get('/api/auth/me', token);
+        if (data.role === 'admin') {
+          navigate(`/admin/dashboard/${data.uuid}`);
+        }
+      } catch (err) {
+        console.error('Rol kontrolü hatası:', err);
+      }
+    };
+    checkRole();
+  }, []);
+
   useEffect(() => {
     const fetchAll = async () => {
       try {
