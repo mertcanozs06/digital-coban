@@ -18,7 +18,7 @@ export default function Dashboard() {
   const [error, setError] = useState('');
   const [subscriptionInfo, setSubscriptionInfo] = useState(null);
   const [isScanning, setIsScanning] = useState(false);
-  const [mapLoading, setMapLoading] = useState(true);
+  const [mapReady, setMapReady] = useState(false);
 
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [updateForm, setUpdateForm] = useState({
@@ -96,37 +96,88 @@ export default function Dashboard() {
     fetchAll();
   }, [token, navigate]);
 
-  // HARİTA YÖNETİMİ
   useEffect(() => {
-    if (!mapContainer.current) return;
-
-    const apiKey = import.meta.env.VITE_MAPTILER_API_KEY;
+    if (loading || !mapContainer.current) return;
 
     if (!map.current) {
       map.current = new maplibregl.Map({
         container: mapContainer.current,
-        style: `https://api.maptiler.com/maps/satellite/style.json?key=${apiKey}`,
+        style: {
+          version: 8,
+          sources: {
+            'google-hybrid': {
+              type: 'raster',
+              tiles: [
+                'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}'
+              ],
+              tileSize: 256,
+              attribution: '© Google'
+            }
+          },
+          layers: [
+            {
+              id: 'google-hybrid-layer',
+              type: 'raster',
+              source: 'google-hybrid',
+              minzoom: 0,
+              maxzoom: 20
+            }
+          ]
+        },
         center: [32.85, 39.93],
         zoom: 16,
         attributionControl: false
       });
       map.current.addControl(new maplibregl.NavigationControl(), 'top-right');
-      map.current.on('load', () => setMapLoading(false));
+      
+      map.current.on('load', () => {
+        map.current.resize();
+        setMapReady(true);
+      });
+
+      map.current.on('error', () => {
+        setMapReady(true); // Hata olsa bile işlemlere izin ver
+      });
+
+      // Tam güvenlik: 3 saniye sonra her halükarda resize dursa da tetikle
+      setTimeout(() => {
+        if (map.current) map.current.resize();
+      }, 1000);
     }
+
+    return () => {
+      if (map.current) {
+        map.current.remove();
+        map.current = null;
+      }
+    };
+  }, [loading]);
+
+  useEffect(() => {
+    if (!mapContainer.current || !map.current || !mapReady) return;
 
     const mapInstance = map.current;
 
     const updateMapElements = () => {
-      if (!mapInstance.isStyleLoaded()) return;
+      // Stil yüklenmediyse bekle
+      if (!mapInstance.isStyleLoaded()) {
+        mapInstance.once('styledata', updateMapElements);
+        return;
+      }
 
       // Hayvan Markerları
       markersRef.current.forEach(m => m.remove());
       markersRef.current = [];
       animals.forEach((a, index) => {
-        if (a.last_lat && a.last_lng && a.location_visible !== false) {
+        if (a.last_lat && a.last_lng && a.location_visible) {
           const el = document.createElement('div');
-          el.className = 'w-10 h-10 bg-white/90 rounded-full flex items-center justify-center shadow-2xl border-2 border-red-500 transform hover:scale-125 transition-transform cursor-pointer';
-          el.innerHTML = `<span class="text-xl">🐄</span>`;
+          el.className = 'cursor-pointer';
+          
+          const innerEl = document.createElement('div');
+          innerEl.className = 'w-10 h-10 bg-white/90 rounded-full flex items-center justify-center shadow-2xl border-2 border-red-500 transition-transform hover:scale-125 transform';
+          innerEl.innerHTML = `<span class="text-xl">🐄</span>`;
+          
+          el.appendChild(innerEl);
           
           const marker = new maplibregl.Marker({ element: el })
             .setLngLat([Number(a.last_lng), Number(a.last_lat)])
@@ -208,7 +259,7 @@ export default function Dashboard() {
 
     mapInstance.on('click', handleMapClick);
     return () => mapInstance.off('click', handleMapClick);
-  }, [animals, lastDrawnArea, isDrawingArea, currentPolygon]);
+  }, [animals, lastDrawnArea, isDrawingArea, currentPolygon, mapReady]);
 
   const startPayment = async () => {
     try {
@@ -275,16 +326,21 @@ export default function Dashboard() {
   useEffect(() => {
     if (!isScanning) return;
     const qr = new Html5Qrcode("qr-reader");
+    let isProcessing = false;
+
     qr.start({ facingMode: "environment" }, { fps: 15, qrbox: 250 }, async (text) => {
+      if (isProcessing) return;
+      isProcessing = true;
       setIsScanning(false); 
-      await qr.stop();
       try {
         await api.post('/api/animals', { code: text });
         fetchAll();
         alert('Hayvan başarıyla eklendi!');
       } catch (e) { alert(e.message); }
     }).catch(console.error);
-    return () => qr.stop().catch(() => {});
+    return () => {
+      try { qr.stop().catch(() => {}); } catch(e) {}
+    };
   }, [isScanning]);
 
   const remainingDays = (() => {
@@ -419,11 +475,7 @@ export default function Dashboard() {
                 
                 <div className="relative group">
                     <div ref={mapContainer} className="w-full rounded-[2rem] border-4 border-slate-50 shadow-inner bg-slate-100 relative overflow-hidden" style={{ height: '700px' }}>
-                    {mapLoading && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-slate-900/40 backdrop-blur-md z-10 font-black text-white text-xl uppercase tracking-widest animate-pulse">
-                            Harita Verileri Yükleniyor...
-                        </div>
-                    )}
+
                     {isDrawingArea && (
                         <div className="absolute top-8 left-8 z-10 bg-black/80 backdrop-blur-md text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] shadow-2xl shadow-black/50 border border-white/20 animate-in fade-in slide-in-from-left-4 duration-300">
                         {currentPolygon.length === 0 ? 'Haritada Köşe Noktalarını Belirleyin' : `${currentPolygon.length} Köşe İşaretlendi.`}

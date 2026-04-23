@@ -16,18 +16,8 @@ router.post('/callback', async (req, res) => {
     return res.redirect('http://localhost:5173/login');
   }
 
-  iyzipay.checkoutForm.retrieve(
-    { token },
-    (err, result) => {
-      if (err || result.status !== 'success') {
-        return res.redirect('http://localhost:5173/login');
-      }
-
-      // başarılıysa frontend'e yönlendir
-      res.redirect(`http://localhost:5173/payment-callback?token=${token}`);
-      console.log("CALLBACK BODY:", req.body);
-    }
-  );
+  // frontend'e yönlendiriyoruz
+  return res.redirect(`http://localhost:5173/payment-callback?token=${token}`);
 });
 
 router.post('/update-animals', authMiddleware, updateAnimalCount);

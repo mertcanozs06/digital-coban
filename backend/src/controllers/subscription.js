@@ -67,7 +67,8 @@ export const initializeCheckout = async (req, res) => {
       basketId: `YEARLY_${userId}_${Date.now()}`,
       paymentChannel: 'WEB',
       paymentGroup: 'PRODUCT',
-     callbackUrl: `http://127.0.0.1:5000/api/subscriptions/callback`,
+
+      callbackUrl: `http://127.0.0.1:5000/api/subscriptions/callback`,
 
       buyer: {
         id: userId.toString(),
