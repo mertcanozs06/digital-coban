@@ -18,10 +18,15 @@ export default function AdminDashboard() {
   const [selectedInstallation, setSelectedInstallation] = useState(null);
   const [targetDealerId, setTargetDealerId] = useState('');
 
-  const fetchData = async () => {
+  const fetchData = async (isSilent = false) => {
     try {
-      setLoading(true);
+      if (!isSilent) setLoading(true);
       const token = localStorage.getItem('token');
+      if (!token) {
+        navigate('/login');
+        return;
+      }
+      
       const apps = await api.get('/api/admin/applications', token);
       setApplications(apps);
 
@@ -37,14 +42,26 @@ export default function AdminDashboard() {
       const i = await api.get('/api/admin/installations', token);
       setInstallations(i);
     } catch (err) {
-      console.error(err);
+      console.error('Veri çekme hatası:', err);
+      // Token hatası veya Yetkisiz erişim (401) durumunda giriş ekranına yönlendir
+      if (err.message?.includes('401') || err.message?.includes('token') || err.message?.includes('Token') || err.message?.includes('Geçersiz')) {
+        localStorage.removeItem('token');
+        navigate('/login');
+      }
     } finally {
-      setLoading(false);
+      if (!isSilent) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchData();
+    fetchData(false);
+
+    // Her 3 saniyede bir sessiz arka plan güncellemesi
+    const interval = setInterval(() => {
+      fetchData(true);
+    }, 3000);
+
+    return () => clearInterval(interval);
   }, []);
 
   // TAILWIND CSS V4 CDN Injector
@@ -121,23 +138,23 @@ export default function AdminDashboard() {
   return (
     <div className="min-h-screen bg-[#f8fafc] font-sans selection:bg-red-200 pb-20">
       {/* Premium Header */}
-      <header className="bg-slate-900 border-b border-slate-800 text-white shadow-2xl sticky top-0 z-50">
+      <header className="bg-emerald-950 border-b border-emerald-900 text-white shadow-2xl sticky top-0 z-50">
         <div className="max-w-full mx-auto px-4 md:px-8 py-4 flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-4">
-            <div className="w-10 h-10 bg-red-600 rounded-xl flex items-center justify-center shadow-lg shadow-red-500/20">
+            <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/20">
                 <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>
             </div>
             <div>
-                <h1 className="text-xl md:text-2xl font-black tracking-tighter uppercase leading-none">Digital<span className="text-red-500 font-light lowercase">Çoban</span></h1>
-                <p className="text-[10px] md:text-xs text-slate-500 mt-1 font-bold uppercase tracking-widest opacity-70">Admin Control Center</p>
+                <h1 className="text-xl md:text-2xl font-black tracking-tighter uppercase leading-none">Digital<span className="text-emerald-400 font-light lowercase">Çoban</span></h1>
+                <p className="text-[10px] md:text-xs text-emerald-200 mt-1 font-bold uppercase tracking-widest opacity-70">Admin Control Center</p>
             </div>
           </div>
           <div className="flex items-center gap-4 w-full md:w-auto">
             <div className="hidden lg:block text-right">
-                <p className="text-xs font-bold text-slate-400">Yönetici Oturumu</p>
-                <p className="text-[10px] font-mono text-slate-600 truncate max-w-[150px]">{uuid}</p>
+                <p className="text-xs font-bold text-emerald-200">Yönetici Oturumu</p>
+                <p className="text-[10px] font-mono text-emerald-300 truncate max-w-[150px]">{uuid}</p>
             </div>
-            <button onClick={handleLogout} className="flex-1 md:flex-none px-6 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl text-sm font-black shadow-xl shadow-red-600/20 transition-all hover:-translate-y-0.5 active:translate-y-0">Çıkış Yap</button>
+            <button onClick={handleLogout} className="flex-1 md:flex-none px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-black shadow-xl shadow-emerald-600/20 transition-all hover:-translate-y-0.5 active:translate-y-0">Çıkış Yap</button>
           </div>
         </div>
       </header>

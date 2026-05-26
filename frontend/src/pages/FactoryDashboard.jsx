@@ -11,21 +11,37 @@ export default function FactoryDashboard() {
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [form, setForm] = useState({ status: 'shipped', sentCount: 0, message: '' });
 
-  const fetchData = async () => {
+  const fetchData = async (isSilent = false) => {
     try {
-      setLoading(true);
+      if (!isSilent) setLoading(true);
       const token = localStorage.getItem('token');
+      if (!token) {
+        navigate('/login');
+        return;
+      }
+      
       const data = await api.get('/api/factory/stock-requests', token);
       setRequests(data);
     } catch (err) {
-      console.error(err);
+      console.error('Data fetch error:', err);
+      if (err.message?.includes('401') || err.message?.includes('token') || err.message?.includes('Token') || err.message?.includes('Geçersiz')) {
+        localStorage.removeItem('token');
+        navigate('/login');
+      }
     } finally {
-      setLoading(false);
+      if (!isSilent) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchData();
+    fetchData(false);
+
+    // Her 3 saniyede bir sessiz arka plan güncellemesi
+    const interval = setInterval(() => {
+      fetchData(true);
+    }, 3000);
+
+    return () => clearInterval(interval);
   }, []);
 
   // TAILWIND CSS V4 CDN Injector
@@ -40,11 +56,17 @@ export default function FactoryDashboard() {
   }, []);
 
   const openUpdate = (req) => {
+    const kalanImalat = (req.requested_count - (req.arrived_count + req.shipped_count)) > 0
+      ? (req.requested_count - (req.arrived_count + req.shipped_count))
+      : 0;
+
+    if (kalanImalat === 0) return;
+
     setSelectedRequest(req);
-    setForm({ 
-        status: 'shipped', 
-        sentCount: req.requested_count - (req.arrived_count + req.shipped_count), 
-        message: '' 
+    setForm({
+      status: 'shipped',
+      sentCount: req.requested_count - (req.arrived_count + req.shipped_count),
+      message: ''
     });
     setShowModal(true);
   };
@@ -75,23 +97,23 @@ export default function FactoryDashboard() {
   return (
     <div className="min-h-screen bg-[#f8fafc] font-sans selection:bg-blue-200 pb-20">
       {/* Dynamic Factory Header */}
-      <header className="bg-slate-900 border-b border-slate-800 text-white shadow-2xl sticky top-0 z-50">
+      <header className="bg-teal-950 border-b border-teal-900 text-white shadow-2xl sticky top-0 z-50">
         <div className="max-w-full mx-auto px-4 md:px-8 py-4 flex flex-col md:flex-row justify-between items-center gap-4 text-center md:text-left">
           <div className="flex items-center gap-4">
-            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20">
+            <div className="w-10 h-10 bg-teal-600 rounded-xl flex items-center justify-center shadow-lg shadow-teal-500/20">
                 <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
             </div>
             <div>
-                <h1 className="text-xl md:text-2xl font-black tracking-tighter uppercase leading-none">Digital<span className="text-blue-500 font-light lowercase">Çoban</span></h1>
-                <p className="text-[10px] md:text-xs text-slate-400 mt-1 font-bold uppercase tracking-widest opacity-70">Merkezi Üretim & Lojistik Paneli</p>
+                <h1 className="text-xl md:text-2xl font-black tracking-tighter uppercase leading-none">Digital<span className="text-teal-400 font-light lowercase">Çoban</span></h1>
+                <p className="text-[10px] md:text-xs text-teal-200 mt-1 font-bold uppercase tracking-widest opacity-70">Merkezi Üretim & Lojistik Paneli</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
              <div className="hidden lg:flex flex-col items-end mr-4">
-                <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Terminal ID</p>
-                <p className="text-[10px] font-mono text-blue-400 uppercase tracking-tighter">{uuid}</p>
+                <p className="text-[8px] font-black text-teal-500 uppercase tracking-widest">Terminal ID</p>
+                <p className="text-[10px] font-mono text-teal-300 uppercase tracking-tighter">{uuid}</p>
              </div>
-             <button onClick={handleLogout} className="px-6 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-black shadow-xl shadow-red-500/20 transition-all hover:-translate-y-0.5 active:translate-y-0">Güvenli Çıkış</button>
+             <button onClick={handleLogout} className="px-6 py-2.5 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-xs font-black shadow-xl shadow-teal-500/20 transition-all hover:-translate-y-0.5 active:translate-y-0">Güvenli Çıkış</button>
           </div>
         </div>
       </header>
@@ -107,7 +129,12 @@ export default function FactoryDashboard() {
                 <div className="flex gap-4">
                    <div className="bg-blue-50 px-6 py-3 rounded-2xl border border-blue-100 text-center">
                         <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-1">Bekleyen İşlem</p>
-                        <p className="text-2xl font-black text-blue-700">{requests.filter(r => r.status === 'pending' || r.status === 'shipped').length}</p>
+                        <p className="text-2xl font-black text-blue-700">
+                          {requests.filter(r => 
+                            (r.status === 'pending' || r.status === 'shipped') && 
+                            (r.requested_count - ((r.arrived_count || 0) + (r.shipped_count || 0))) > 0
+                          ).length}
+                        </p>
                    </div>
                 </div>
             </div>
@@ -162,12 +189,27 @@ export default function FactoryDashboard() {
                             </div>
                         </div>
                         <div className="w-full lg:w-auto">
-                            <button 
-                                onClick={() => openUpdate(req)}
-                                className="w-full lg:w-48 bg-slate-900 border-2 border-slate-900 hover:bg-blue-600 hover:border-blue-600 text-white font-black py-4 rounded-2xl shadow-xl transition-all uppercase tracking-widest text-xs active:scale-95"
-                            >
-                                SEVK İŞLEMİ
-                            </button>
+                            {(() => {
+                              const kalanImalat = (req.requested_count - (req.arrived_count + req.shipped_count)) > 0
+                                ? (req.requested_count - (req.arrived_count + req.shipped_count))
+                                : 0;
+
+                              const isCompleted = kalanImalat === 0;
+
+                              return (
+                                <button
+                                  onClick={() => !isCompleted && openUpdate(req)}
+                                  disabled={isCompleted}
+                                  className={`w-full lg:w-48 bg-slate-900 border-2 rounded-2xl shadow-xl transition-all uppercase tracking-widest text-xs py-4 active:scale-95 ${
+                                    isCompleted
+                                      ? 'border-slate-300 text-slate-300 opacity-60 cursor-not-allowed hover:bg-slate-900 hover:border-slate-300'
+                                      : 'border-slate-900 hover:bg-blue-600 hover:border-blue-600 text-white'
+                                  }`}
+                                >
+                                  {isCompleted ? 'TAMAMLANDI' : 'SEVK İŞLEMİ'}
+                                </button>
+                              );
+                            })()}
                         </div>
                     </div>
                 ))}
@@ -271,13 +313,30 @@ export default function FactoryDashboard() {
                     >
                         VAZGEÇ
                     </button>
-                    <button 
-                        onClick={handleUpdateSubmit}
-                        type="submit" 
-                        className="flex-[2] bg-slate-900 hover:bg-blue-600 text-white py-5 rounded-3xl font-black uppercase tracking-[0.2em] text-[11px] shadow-2xl shadow-blue-500/10 transition-all hover:-translate-y-0.5 active:translate-y-0 active:scale-95"
-                    >
-                        SİSTEMİ GÜNCELLE
-                    </button>
+                    {(() => {
+                        const kalanImalat = selectedRequest
+                          ? ((selectedRequest.requested_count - (selectedRequest.arrived_count + selectedRequest.shipped_count)) > 0
+                              ? (selectedRequest.requested_count - (selectedRequest.arrived_count + selectedRequest.shipped_count))
+                              : 0)
+                          : 0;
+
+                        const isCompleted = kalanImalat === 0;
+
+                        return (
+                          <button
+                            onClick={handleUpdateSubmit}
+                            type="submit"
+                            disabled={isCompleted}
+                            className={`flex-[2] bg-slate-900 py-5 rounded-3xl font-black uppercase tracking-[0.2em] text-[11px] shadow-2xl shadow-blue-500/10 transition-all hover:-translate-y-0.5 active:translate-y-0 active:scale-95 ${
+                              isCompleted
+                                ? 'opacity-60 cursor-not-allowed hover:bg-slate-900'
+                                : 'hover:bg-blue-600 text-white'
+                            }`}
+                          >
+                            SİSTEMİ GÜNCELLE
+                          </button>
+                        );
+                      })()}
                 </div>
             </div>
           </div>

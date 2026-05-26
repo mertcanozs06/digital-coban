@@ -349,28 +349,28 @@ export default function Dashboard() {
     return Math.max(0, Math.ceil((end - new Date()) / (1000 * 60 * 60 * 24)));
   })();
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-900 font-black text-white text-3xl italic animate-pulse tracking-tighter uppercase">Digital<span className="text-emerald-500 font-light">Çoban</span></div>;
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-green-950 font-black text-white text-3xl italic animate-pulse tracking-tighter uppercase">Digital<span className="text-green-500 font-light">Çoban</span></div>;
 
   return (
-    <div className="min-h-screen bg-[#f1f5f9] font-sans selection:bg-emerald-200">
+    <div className="min-h-screen bg-[#f1f5f9] font-sans selection:bg-green-200">
       
       {/* Premium Navigation */}
-      <nav className="bg-slate-900 border-b border-slate-800 text-white shadow-2xl sticky top-0 z-50">
+      <nav className="bg-green-950 border-b border-green-900 text-white shadow-2xl sticky top-0 z-50">
         <div className="max-w-full mx-auto px-4 md:px-8 py-4 flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-4">
-            <div className="w-10 h-10 bg-emerald-500 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-500/20">
+            <div className="w-10 h-10 bg-green-600 rounded-2xl flex items-center justify-center shadow-lg shadow-green-500/20">
                 <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 21l-8-4.5v-9L12 3l8 4.5v9l-8 4.5z" /></svg>
             </div>
             <div>
-                <h1 className="text-xl md:text-2xl font-black tracking-tighter uppercase leading-none">Digital<span className="text-emerald-500 font-light lowercase">Çoban</span></h1>
-                <p className="text-[10px] md:text-xs text-slate-500 mt-1 font-bold uppercase tracking-widest opacity-70">Akıllı Sürü Yönetim Sistemi</p>
+                <h1 className="text-xl md:text-2xl font-black tracking-tighter uppercase leading-none">Digital<span className="text-green-400 font-light lowercase">Çoban</span></h1>
+                <p className="text-[10px] md:text-xs text-green-200 mt-1 font-bold uppercase tracking-widest opacity-70">Akıllı Sürü Yönetim Sistemi</p>
             </div>
           </div>
           <div className="flex flex-wrap items-center justify-center gap-2">
-            <button onClick={openUpdateModal} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-black text-[10px] uppercase flex items-center gap-2 transition-all"><FaSyncAlt className="text-emerald-500" /> Kapasite</button>
-            <button onClick={startPayment} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black text-[10px] uppercase flex items-center gap-2 shadow-xl shadow-emerald-500/20 transition-all"><FaCreditCard /> Ödeme Yap</button>
-            <button onClick={startRenewal} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-black text-[10px] uppercase flex items-center gap-2 shadow-xl shadow-indigo-500/20 transition-all">🔄 Yenile</button>
-            <button onClick={handleLogout} className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl font-black text-[10px] uppercase flex items-center gap-2 transition-all"><FaSignOutAlt /> Çıkış</button>
+            <button onClick={openUpdateModal} className="px-4 py-2 bg-green-900 hover:bg-green-800 text-green-200 rounded-xl font-black text-[10px] uppercase flex items-center gap-2 transition-all"><FaSyncAlt className="text-green-400" /> Kapasite</button>
+            <button onClick={startPayment} className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-xl font-black text-[10px] uppercase flex items-center gap-2 shadow-xl shadow-green-500/20 transition-all"><FaCreditCard /> Ödeme Yap</button>
+            <button onClick={startRenewal} className="px-4 py-2 bg-lime-600 hover:bg-lime-500 text-white rounded-xl font-black text-[10px] uppercase flex items-center gap-2 shadow-xl shadow-lime-500/20 transition-all">🔄 Yenile</button>
+            <button onClick={handleLogout} className="px-4 py-2 bg-green-700 hover:bg-green-600 text-white rounded-xl font-black text-[10px] uppercase flex items-center gap-2 transition-all"><FaSignOutAlt /> Çıkış</button>
           </div>
         </div>
       </nav>

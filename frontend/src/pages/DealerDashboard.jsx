@@ -24,10 +24,14 @@ export default function DealerDashboard() {
   const [showInstallModal, setShowInstallModal] = useState(false);
   const [installForm, setInstallForm] = useState({ farmerId: '', hwMacAddress: '', type: 'installation', description: '' });
 
-  const fetchData = async () => {
+  const fetchData = async (isSilent = false) => {
     try {
-      setLoading(true);
+      if (!isSilent) setLoading(true);
       const token = localStorage.getItem('token');
+      if (!token) {
+        navigate('/login');
+        return;
+      }
       
       const factoriesData = await api.get('/api/dealer/factories', token);
       setFactories(factoriesData);
@@ -43,13 +47,24 @@ export default function DealerDashboard() {
 
     } catch (error) {
       console.error('Data fetch error:', error);
+      if (error.message?.includes('401') || error.message?.includes('token') || error.message?.includes('Token') || error.message?.includes('Geçersiz')) {
+        localStorage.removeItem('token');
+        navigate('/login');
+      }
     } finally {
-      setLoading(false);
+      if (!isSilent) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchData();
+    fetchData(false);
+
+    // Her 3 saniyede bir sessiz arka plan güncellemesi
+    const interval = setInterval(() => {
+      fetchData(true);
+    }, 3000);
+
+    return () => clearInterval(interval);
   }, []);
 
   // TAILWIND CSS V4 CDN Injector
@@ -133,23 +148,23 @@ export default function DealerDashboard() {
   return (
     <div className="min-h-screen bg-[#f1f5f9] font-sans selection:bg-emerald-200 pb-20">
       {/* Dynamic Header */}
-      <header className="bg-slate-900 border-b border-slate-800 text-white shadow-2xl sticky top-0 z-50">
+      <header className="bg-lime-950 border-b border-lime-900 text-white shadow-2xl sticky top-0 z-50">
         <div className="max-w-full mx-auto px-4 md:px-8 py-4 flex flex-col md:flex-row justify-between items-center gap-4 text-center md:text-left">
           <div className="flex items-center gap-4">
-            <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/20">
+            <div className="w-10 h-10 bg-lime-600 rounded-xl flex items-center justify-center shadow-lg shadow-lime-500/20">
                 <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
             </div>
             <div>
-                <h1 className="text-xl md:text-2xl font-black tracking-tighter uppercase leading-none">Digital<span className="text-emerald-400 font-light lowercase">Çoban</span></h1>
-                <p className="text-[10px] md:text-xs text-slate-400 mt-1 font-bold uppercase tracking-widest opacity-70">Bayi Operasyon Paneli</p>
+                <h1 className="text-xl md:text-2xl font-black tracking-tighter uppercase leading-none">Digital<span className="text-lime-400 font-light lowercase">Çoban</span></h1>
+                <p className="text-[10px] md:text-xs text-lime-200 mt-1 font-bold uppercase tracking-widest opacity-70">Bayi Operasyon Paneli</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
             <span className="hidden lg:flex flex-col items-end">
-                <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Yürütücü Kimliği</p>
-                <p className="text-[10px] font-mono text-emerald-400 uppercase">{uuid.slice(0, 8)}...</p>
+                <p className="text-[8px] font-black text-lime-500 uppercase tracking-widest">Yürütücü Kimliği</p>
+                <p className="text-[10px] font-mono text-lime-300 uppercase">{uuid.slice(0, 8)}...</p>
             </span>
-            <button onClick={handleLogout} className="px-6 py-2.5 bg-red-500 hover:bg-red-400 text-white rounded-xl text-xs font-black shadow-xl shadow-red-500/20 transition-all hover:-translate-y-0.5 active:translate-y-0">Çıkış Yap</button>
+            <button onClick={handleLogout} className="px-6 py-2.5 bg-lime-700 hover:bg-lime-600 text-white rounded-xl text-xs font-black shadow-xl shadow-lime-700/20 transition-all hover:-translate-y-0.5 active:translate-y-0">Çıkış Yap</button>
           </div>
         </div>
       </header>
