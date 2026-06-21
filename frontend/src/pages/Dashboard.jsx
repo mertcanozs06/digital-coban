@@ -6,6 +6,43 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { api } from '../services/api.js';
 import { FaPen, FaEye, FaEyeSlash, FaCrosshairs, FaMapMarkedAlt, FaPlus, FaSignOutAlt, FaSyncAlt, FaCreditCard, FaEdit } from 'react-icons/fa';
 
+const sortCoordinatesByAngle = (coords) => {
+  if (coords.length < 3) return coords;
+  const center = coords.reduce((acc, curr) => [acc[0] + curr[0] / coords.length, acc[1] + curr[1] / coords.length], [0, 0]);
+  return [...coords].sort((a, b) => {
+    const angleA = Math.atan2(a[1] - center[1], a[0] - center[0]);
+    const angleB = Math.atan2(b[1] - center[1], b[0] - center[0]);
+    return angleA - angleB;
+  });
+};
+
+const getDistanceToSegment = (p, v, w) => {
+  const l2 = (w[0] - v[0])**2 + (w[1] - v[1])**2;
+  if (l2 === 0) return { distance: Math.sqrt((p[0] - v[0])**2 + (p[1] - v[1])**2), point: v };
+  let t = ((p[0] - v[0]) * (w[0] - v[0]) + (p[1] - v[1]) * (w[1] - v[1])) / l2;
+  t = Math.max(0, Math.min(1, t));
+  const projection = [v[0] + t * (w[0] - v[0]), v[1] + t * (w[1] - v[1])];
+  return {
+    distance: Math.sqrt((p[0] - projection[0])**2 + (p[1] - projection[1])**2),
+    point: projection
+  };
+};
+
+const getClosestPointOnPolygon = (point, polygon) => {
+  let minDistance = Infinity;
+  let closestPoint = null;
+  for (let i = 0; i < polygon.length; i++) {
+    const p1 = polygon[i];
+    const p2 = polygon[(i + 1) % polygon.length];
+    const { distance, point: proj } = getDistanceToSegment(point, p1, p2);
+    if (distance < minDistance) {
+      minDistance = distance;
+      closestPoint = proj;
+    }
+  }
+  return { minDistance, closestPoint };
+};
+
 export default function Dashboard() {
   const { uuid } = useParams();
   const navigate = useNavigate();
@@ -196,9 +233,10 @@ export default function Dashboard() {
       drawingMarkersRef.current.forEach(m => m.remove());
       drawingMarkersRef.current = [];
       if (isDrawingArea) {
-        currentPolygon.forEach((coord) => {
+        currentPolygon.forEach((coord, index) => {
           const el = document.createElement('div');
-          el.className = 'w-4 h-4 bg-emerald-500 border-2 border-white rounded-full shadow-lg';
+          el.className = 'w-6 h-6 bg-emerald-500 border-2 border-white rounded-full shadow-lg flex items-center justify-center text-[10px] text-white font-black';
+          el.innerHTML = String(index + 1);
           const dMarker = new maplibregl.Marker({ element: el }).setLngLat(coord).addTo(mapInstance);
           drawingMarkersRef.current.push(dMarker);
         });
@@ -211,20 +249,28 @@ export default function Dashboard() {
       if (isDrawingArea && currentPolygon.length > 0) {
         data.features.push({
           type: 'Feature',
+          properties: { color: '#22c55e', isFill: false },
           geometry: { type: 'LineString', coordinates: currentPolygon }
         });
         if (currentPolygon.length >= 3) {
           data.features.push({
             type: 'Feature',
+            properties: { color: '#22c55e', isFill: true },
             geometry: { type: 'Polygon', coordinates: [[...currentPolygon, currentPolygon[0]]] }
           });
         }
-      } else if (lastDrawnArea?.polygon) {
+      }
+      
+      areas.forEach((area, index) => {
+        if (!area.polygon) return;
+        const isLatest = !isDrawingArea && index === 0;
+        const color = isLatest ? '#22c55e' : '#ef4444';
         data.features.push({
           type: 'Feature',
-          geometry: { type: 'Polygon', coordinates: [lastDrawnArea.polygon] }
+          properties: { color: color, isFill: true },
+          geometry: { type: 'Polygon', coordinates: [area.polygon] }
         });
-      }
+      });
 
       if (mapInstance.getSource(sourceId)) {
         mapInstance.getSource(sourceId).setData(data);
@@ -234,13 +280,14 @@ export default function Dashboard() {
           id: 'area-fill',
           type: 'fill',
           source: sourceId,
-          paint: { 'fill-color': '#22c55e', 'fill-opacity': 0.2 }
+          filter: ['==', ['get', 'isFill'], true],
+          paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.2 }
         });
         mapInstance.addLayer({
           id: 'area-outline',
           type: 'line',
           source: sourceId,
-          paint: { 'line-color': '#22c55e', 'line-width': 4, 'line-dasharray': [2, 1] }
+          paint: { 'line-color': ['get', 'color'], 'line-width': 4, 'line-dasharray': [2, 1] }
         });
       }
     };
@@ -253,7 +300,23 @@ export default function Dashboard() {
 
     const handleMapClick = (e) => {
       if (isDrawingArea) {
-        setCurrentPolygon(prev => [...prev, [e.lngLat.lng, e.lngLat.lat]]);
+        let lng = e.lngLat.lng;
+        let lat = e.lngLat.lat;
+
+        setCurrentPolygon(prev => {
+          if (lastDrawnArea && lastDrawnArea.polygon && prev.length < 2) {
+             const { minDistance, closestPoint } = getClosestPointOnPolygon([lng, lat], lastDrawnArea.polygon);
+             if (minDistance > 0.0003) { 
+                 alert("İlk iki noktayı bir önceki alanın sınırına (kırmızı çizgiye) yakın bir yere tıklayarak seçmelisiniz!");
+                 return prev;
+             }
+             lng = closestPoint[0];
+             lat = closestPoint[1];
+          }
+
+          const newCoords = [...prev, [lng, lat]];
+          return sortCoordinatesByAngle(newCoords);
+        });
       }
     };
 
